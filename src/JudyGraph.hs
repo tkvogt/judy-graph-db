@@ -46,29 +46,43 @@ type Bits = Int
 --   ---------------    -->   ------
 --   32 bit | 32 bit          32 bit
 
--- To check properties of edges and nodes fast, we allow to use some of the node/edge bits for these
--- properties. This is called fastAttr and can be up to 24 bits. It depends on your 
--- usage scenario if you plan to use 4 bilion nodes (2^32) or if you need to check properties of a lot
--- of nodes/edges quickly and for example 2^24 nodes are enough, having 8 bits to encode a property.
+-- To check attributes of edges and nodes fast, we allow to use some of the node/edge bits for these
+-- attributes. This is called fastAttr and can be up to 32 bits. The number of fastAttr bits in the
+-- node has to be constant, because you are either wasting space or overflowing.
+-- It depends on your usage scenario if you plan to use 4 bilion nodes (2^32) or if you need to check 
+-- attributes of a lot of nodes/edges quickly and for example 2^24 nodes are enough, having 8 bits
+-- to encode an attribute:
 
--- If properties don't fit into n bits (n=1..24), they can be stored in an extra value-node with
--- 64 bits. If this is still not enough, a map is used to associate a node/edge index with any label.
+--     node | node attr |  edge  | edge attr           node
+--   ----------------------------------------   -->   ------
+--   24 bit |  8 bit    | 16 bit | 16 bit             32 bit
 
+
+-- If attributes don't fit into n bits (n=1..24), they can be stored in an extra value-node with
+-- 64 bits. If this is still not enough,
+-- a secondary data.map is used to associate a node/edge with any label.
+
+-- Edge Attributes depending on ranges
+--------------------------------------
 -- Node indexes can be in ranges: If you have lets say 5 different types of nodes, you can store each
--- type of node in a certain range and change the meaning of the edge property bits depending on the
+-- type of node in a certain range and change the meaning of the edge attribute bits depending on the
 -- range the node index is in. Example:
--- Noderange 0-10: Person node,  8 bits to encode age years in edge between person node and age node
---           11-20: company node, 16 bits to encode the job position in edge between company node and
---                                        job-position node
---          But the number of fastAttr bits in the node has to be constant,
---          because you are either wasting space or overflowing
-
+-- Noderange 0-10: Person node,  8 bits to encode age years in an edge between each person node
+--                 and company node.
+--           11-20: company node, 16 bits to encode the job position in an edge between a company node
+--                  an a person node.
+-- The rest of the bits are used to enumerate the the edges with this attribute.
+-- Eg you have encoded the job position in the edge then the rest of the bits can be used to
+-- enumerate the people with this job position. If there are 10 edges out of 100.000 with a
+-- certain attribute, then we can access these edges in 10n steps.
+--
+-- Too many ranges obviously slow down the library.
 
 data JGraph nl el =
   JGraph { graph     :: Judy, -- A Graph with 32 bit keys on the edge
            enumGraph :: Judy, -- enumerate the edges of the first graph, with counter
-           complexNodeLabelMap :: Maybe (Map Word32 nl), -- a node attr that does not fit into 64 bit
-           complexEdgeLabelMap :: Maybe (Map (Node,Node) [el]),-- an edge attr that doesnt fit into 64bit
+           complexNodeLabelMap :: Maybe (Map Word32 nl),       --a  node attr that doesnt fit into 64bit
+           complexEdgeLabelMap :: Maybe (Map (Node,Node) [el]),--an edge attr that doesnt fit into 64bit
            ranges :: [(RangeEnd, nl)]-- an attribute for every range
          }
 
@@ -133,16 +147,16 @@ fromListJudy :: (NodeAttribute nl, EdgeAttribute el) =>
                 Judy -> Judy -> [(Edge, Maybe nl, [el])] -> IO (JGraph nl el)
 fromListJudy j mj nodeEdges = do
     let jgraph = empty j mj
-    mapM (insertNodeEdge jgraph) nodeEdges
+    mapM (insertNodeEdges jgraph) nodeEdges
     return jgraph
 
 
 ---------------------------------------------------------------------------------------------------
 
 -- Inserting a new node means either
---  * if its new then only add an entry to the secondary map
+--  * if its new then only add an entry to the secondary data.map
 --  * if it already exists then the label of the existing node is changed.
---    This can be slow because all node-edges are updated (O(#adjacentEdges))
+--    This can be slow because all node-edges have to be updated (O(#adjacentEdges))
 insertNode :: NodeAttribute nl => JGraph nl el -> (Node, nl) -> IO (JGraph nl el)
 insertNode jgraph (node, nl) = do
     let newNodeAttr = maybe Map.empty (Map.insert node nl) (complexNodeLabelMap jgraph)
@@ -169,7 +183,7 @@ updateNodeEdges jgraph node nodeLabel (edge, targetNode) = do
 insertEdge :: (NodeAttribute nl, EdgeAttribute el) =>
               JGraph nl el -> (Edge, [el]) -> IO (JGraph nl el)
 insertEdge jgraph ((n0,n1), edgeLabels) = do
-    insertNodeEdge jgraph ((n0, n1), nLabel, edgeLabels)
+    insertNodeEdges jgraph ((n0, n1), nLabel, edgeLabels)
     return (jgraph { complexEdgeLabelMap = Just newEdgeLabelMap })
   where
     nLabel = maybe Nothing (Map.lookup n0) (complexNodeLabelMap jgraph)
@@ -181,27 +195,6 @@ insertEdge jgraph ((n0,n1), edgeLabels) = do
                           (fromMaybe Map.empty (complexEdgeLabelMap jgraph))
 
 
--- build the graph without using the secondary Data.Map graph
-insertNodeEdge :: (NodeAttribute nl, EdgeAttribute el) =>
-                  JGraph nl el -> (Edge, Maybe nl, [el]) -> IO (JGraph nl el)
-insertNodeEdge jgraph ((n0, n1), nodeLabel, edgeLabels) = do
-    -- the enumgraph has the number of adjacent edges at index 0
-    let enumNodeEdge = buildWord64 n0Key 0
-    edgecount <- J.lookup enumNodeEdge mj
-    if isNothing edgecount then J.insert enumNodeEdge 1 mj -- the first edge is added, set counter to 1
-                           else J.insert enumNodeEdge ((fromJust edgecount)+1) mj -- incse counter by 1
-    let enumKey = buildWord64 n0Key ((fromMaybe 0 edgecount)+1)
-    J.insert key n1 j
-    J.insert enumKey n1 mj
-    return jgraph
-  where
-    j = graph jgraph
-    mj = enumGraph jgraph
-    n0Key = if isJust nodeLabel then nodeWithLabel n0 (fromJust nodeLabel) else n0
-    key = 0
---    keys = map (buildWord64 n0Key) edgeLabels
-
-
 insertEdgeSet :: (NodeAttribute nl, EdgeAttribute el) =>
                  JGraph nl el -> Map Edge [el] -> IO (JGraph nl el)
 insertEdgeSet jgraph set = do
@@ -210,15 +203,79 @@ insertEdgeSet jgraph set = do
     return newGraph
 
 
+insertNodeEdges :: (NodeAttribute nl, EdgeAttribute el) =>
+                   JGraph nl el -> (Edge, Maybe nl, [el]) -> IO ()
+insertNodeEdges jgraph ((n0, n1), nodeLabel, edgeLabels) = do
+    mapM (insertNodeEdge jgraph) (map (\el -> ((n0, n1), nodeLabel, el)) edgeLabels)
+    return ()
+
+
+-- Build the graph without using the secondary Data.Map graph
+insertNodeEdge :: (NodeAttribute nl, EdgeAttribute el) =>
+                  JGraph nl el -> (Edge, Maybe nl, el) -> IO ()
+insertNodeEdge jgraph ((n0, n1), nl, edgeLabel) = do
+    -- the enumgraph has the number of adjacent edges at index 0
+    let edgeCountKey = buildWord64 n0Key 0
+    edgeCount <- J.lookup edgeCountKey mj
+    if isNothing edgeCount then J.insert edgeCountKey 1 mj -- the first edge is added, set counter to 1
+                           else J.insert edgeCountKey ((fromJust edgeCount)+1) mj -- inc counter by 1
+    let enumKey = buildWord64 n0Key ((fromMaybe 0 edgeCount)+1)
+    J.insert enumKey n1 mj
+
+    -------------------------------------
+    -- An edge consists of an attribute and a counter
+
+    let edgeAttrCountKey = key 0 -- index 0 is the # of attributes
+    maybeEdgeAttrCount <- J.lookup edgeAttrCountKey j
+    let edgeAttrCount = if isJust maybeEdgeAttrCount then fromJust maybeEdgeAttrCount else 0
+    let newValKey = key (edgeAttrCount+1)
+    J.insert edgeAttrCountKey (edgeAttrCount+1) j
+    J.insert newValKey n1 j
+
+  where
+    j = graph jgraph
+    mj = enumGraph jgraph
+    n0Key = if isJust nl then nodeWithLabel n0 (fromJust nl) else n0
+    key i = buildWord64 n0Key (i + (snd $ fastNodeEdgeAttr nLabel edgeLabel))
+    nLabel = if isJust nl then fromJust nl else nodeLabel jgraph n0
+
+
 --------------------------------------------------------------------------------------
--- TODO
-union :: JGraph nl el -> JGraph nl el -> JGraph nl el
-union (JGraph graph0 enumGraph0 complexNodeLabel0 complexEdgeLabel0 ranges0)
-      (JGraph graph1 enumGraph1 complexNodeLabel1 complexEdgeLabel1 ranges1) =
-      (JGraph graph0 enumGraph0 Nothing Nothing [])
+
+union :: JGraph nl el -> JGraph nl el -> IO (JGraph nl el)
+union (JGraph graph0 enumGraph0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0)
+      (JGraph graph1 enumGraph1 complexNodeLabelMap1 complexEdgeLabelMap1 ranges1) = do
+
+    ((biggerJudy,biggerJudyEnum), (smallerJudy, smallerJudyEnum)) <- biggerSmaller (graph0,enumGraph0) (graph1,enumGraph1)
+    nodeEdges <- getNodeEdges (smallerJudy, smallerJudyEnum)
+    (newJudyGraph, newJudyEnum) <- insertNE nodeEdges (biggerJudy, biggerJudyEnum)
+
+    return (JGraph newJudyGraph newJudyEnum
+            (mapUnion complexNodeLabelMap0 complexNodeLabelMap1)
+            (mapUnion complexEdgeLabelMap0 complexEdgeLabelMap1)
+            ranges0) -- assuming ranges are global
+  where
+
+    mapUnion (Just complexLabelMap0) (Just complexLabelMap1) = Just (Map.union complexLabelMap0 complexLabelMap1)
+    mapUnion Nothing (Just complexLabelMap1) = Just complexLabelMap1
+    mapUnion (Just complexLabelMap0) Nothing = Just complexLabelMap0
+    mapUnion Nothing Nothing = Nothing
+
+    biggerSmaller :: (Judy,Judy) -> (Judy,Judy) -> IO ((Judy,Judy), (Judy,Judy))
+    biggerSmaller (g0,e0) (g1,e1) = do
+       s0 <- J.size g0
+       s1 <- J.size g1
+       if s0 >= s1 then return ((g0,e0),(g1,e1)) else return ((g1,e1),(g0,e0))
+
+    insertNE :: [(Word, Word32)] -> (Judy, Judy) -> IO (Judy, Judy)
+    insertNE nodeEdges (j,mj) = return (j,mj)
+
+    getNodeEdges :: (Judy,Judy) -> IO [(Word, Word32)]
+    getNodeEdges (j,mj) = return []
+
 
 ---------------------------------------------------------------------------------------
--- deletion
+-- Deletion
 
 -- TODO: enumGraph has to be adjusted too
 deleteNode :: NodeAttribute nl => JGraph nl el -> Node -> IO (JGraph nl el)
@@ -226,9 +283,10 @@ deleteNode jgraph node = do
     let newNodeMap = maybe Nothing (Just . (Map.delete node)) (complexNodeLabelMap jgraph)
 --    J.delete key mj
     return (jgraph{ complexNodeLabelMap = newNodeMap })
-  where nl = nodeWithMaybeLabel node (maybe Nothing (Map.lookup node) lmap)
-        mj = graph jgraph
-        lmap = complexNodeLabelMap jgraph
+  where
+    nl = nodeWithMaybeLabel node (maybe Nothing (Map.lookup node) lmap)
+    mj = graph jgraph
+    lmap = complexNodeLabelMap jgraph
 
 
 -- deleteJudyEdges :: JGraph nl el -> [Word]
@@ -239,15 +297,25 @@ deleteNodeSet jgraph set = do
     newNodeMap <- foldM deleteNode jgraph (Set.toList set)
     return (jgraph{ complexNodeLabelMap = complexNodeLabelMap newNodeMap })
 
+
 -- TODO: changes in judy array
+-- This will produce holes in the continuously enumerated edge list
+-- that maybe have to be garbage collected with deleteAllEdgesWithAttr
 deleteEdge :: JGraph nl el -> Edge -> IO (JGraph nl el)
 deleteEdge jgraph (n0,n1) = do
     let newEdgeMap = maybe Nothing (Just . (Map.delete (n0,n1))) (complexEdgeLabelMap jgraph)
     return (jgraph { complexEdgeLabelMap = newEdgeMap })
 
+-- TODO
+-- A primitive alternative to garbage collection, because deleteEdge will produce holes
+-- delete as many edges as the counter says there are and then set counter to 0
+deleteAllEdgesWithAttr :: (NodeAttribute nl, EdgeAttribute el) =>
+                          JGraph nl el -> el -> IO (JGraph nl el)
+deleteAllEdgesWithAttr jgraph el = return jgraph
+
 
 ----------------------------------------------------------------------------------------
--- helper functions
+-- Helper functions
 
 
 {-# INLINE buildWord64 #-}
@@ -267,7 +335,7 @@ nodeWithMaybeLabel node Nothing = node
 nodeWithMaybeLabel node (Just nl) = node .|. (snd (fastNodeAttr nl))
 
 ----------------------------------------------------------------------------------------------------
--- query
+-- Query
 
 isEmpty :: JGraph nl el -> IO Bool
 isEmpty (JGraph graph enumGraph _ _ _) = J.null graph
@@ -284,42 +352,32 @@ lookupEdge :: JGraph nl el -> Edge -> Maybe [el]
 lookupEdge graph (n0,n1) = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelMap graph)
 
 
--- Fast property bits can be extracted from a complex edge attribute with a typeclass instance.
+-- Fast attribute bits can be extracted from a complex edge attribute with a typeclass instance.
 -- They are then stored in the 64 bit node-edge-key.
--- Because all edges with the same property bits can be enumerated, all adjacent nodes with the same
--- property can be retrieved with a calculated index and a judy lookup until the last judy lookup fails.
--- Eg you have 100.000 edges and 10 edges with a certain property, there are only 11 lookups
+-- Because all edges with the same attribute bits can be enumerated, all adjacent nodes with the same
+-- attribute can be retrieved with a calculated index and a judy lookup until the last judy lookup fails.
+-- Eg you have 100.000 edges and 10 edges with a certain attribute, there are only 11 lookups
 -- instead of 100.000 with other libraries.
-adjacentNodesByProp :: (NodeAttribute nl, EdgeAttribute el) =>
+adjacentNodesByAttr :: (NodeAttribute nl, EdgeAttribute el) =>
                        JGraph nl el -> Node -> EdgeLabel -> IO (Set Word32)
-adjacentNodesByProp jgraph node el = do
-    ns <- lookupJudyNode jgraph node el 0
-    return (Set.fromList ns)
-
-
-lookupJudyNode :: (NodeAttribute nl, EdgeAttribute el) =>
-                  JGraph nl el -> Node -> EdgeLabel -> Word32 -> IO [Word32]
-lookupJudyNode jgraph node el i = do
+adjacentNodesByAttr jgraph node el = do
     n <- J.lookup key j
-    next <- if isJust n then lookupJudyNode jgraph node el (i+1) else return []
-    return ((fromJust n) : next)
-
-  where nl = nodeLabel jgraph node
-        (bits, attr) = fastNodeEdgeAttr nl el
-        key :: Word
-        key = buildWord64 node (attr + i)
-        j = graph jgraph
-        mj = enumGraph jgraph
+    if isJust n then fmap Set.fromList (lookupJudyNode j node attr 1 (fromJust n))
+                else return Set.empty
+  where
+    nl = nodeLabel jgraph node
+    (bits, attr) = fastNodeEdgeAttr nl el
+    key = buildWord64 node attr
+    j = graph jgraph
 
 
-adjacentNodeCount :: (NodeAttribute nl, EdgeAttribute el) =>
-                     JGraph nl el -> Word32 -> IO Word32
-adjacentNodeCount jgraph node = do
-    let enumNodeEdge = buildWord64 (nodeWithMaybeLabel node nl) 0 --the first index lookup is the count
-    numEdges <- J.lookup enumNodeEdge (enumGraph jgraph)
-    if isJust numEdges then return (fromJust numEdges) else return 0
-  where nl = maybe Nothing (Map.lookup node) (complexNodeLabelMap jgraph)
-        mj = graph jgraph
+lookupJudyNode :: Judy -> Node -> Word32 -> Word32 -> Word32 -> IO [Word32]
+lookupJudyNode j node el i n = do
+    val <- J.lookup key j
+    next <- if i <= n then lookupJudyNode j node el (i+1) n else return []
+    return (if isJust val then ((fromJust val) : next) else next)
+  where
+    key = buildWord64 node (el + i)
 
 
 -- Useful if you want all adjacent edges, but you cannout check all 32 bit words with a lookup
@@ -327,10 +385,25 @@ adjacentNodeCount jgraph node = do
 -- enumerate all edges. Eg you reserve 24 bit for a unicode char, but only 50 chars are used.
 -- But some algorithms need all adjacent edges, for example merging results of leaf nodes in a tree
 -- recursively until the root is reached
-adjacentNodesByIndex :: JGraph nl el -> Word32 -> (Int,Int) -> IO (Set Word32)
-adjacentNodesByIndex jgraph n (start, end) = do
---    (enumGraph jgraph)
-    return Set.empty
+adjacentNodesByIndex :: JGraph nl el -> Word32 -> (Word32, Word32) -> IO (Set Word32)
+adjacentNodesByIndex jgraph node (start, end) = do
+    val <- J.lookup key mj
+    if isJust val then fmap Set.fromList (lookupJudyNode mj node 0 start end)
+                  else return Set.empty
+  where
+    key = buildWord64 node 0
+    mj = enumGraph jgraph
+
+---------------------------------------------------------------
+
+adjacentEdgeCount :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> Word32 -> IO Word32
+adjacentEdgeCount jgraph node = do
+    let edgeCountKey = buildWord64 (nodeWithMaybeLabel node nl) 0 --the first index lookup is the count
+    edgeCount <- J.lookup edgeCountKey mj
+    if isJust edgeCount then return (fromJust edgeCount) else return 0
+  where
+    nl = maybe Nothing (Map.lookup node) (complexNodeLabelMap jgraph)
+    mj = enumGraph jgraph
 
 
 -- The enumGraph enumerates all child edges
@@ -365,16 +438,26 @@ allChildNodesFromEdges jgraph edges node = do
     j = graph jgraph
 
 
--- TODO: more functions
+---------------------------------------------------------------------------------------
+-- Changing all nodes
 
--- mapNode :: (nl0 -> nl1) -> Graph e n el nl0 -> Graph e n el nl1
+-- If the graph was constructed with insertNode or fromList these maps will be used to
+-- access the node-edges. Otherwise a breadth-first-search is done with enumgraph, assuming a DAG.
+-- In this case you have to keep in mind that an inserted edge points from n0 to n1,
+-- but n1 does not know it was pointed at.
 
--- mapNodeWithKey :: (n -> nl0 -> nl1) -> Graph e n el nl0 -> Graph e n el nl1
+mapNode :: (nl0 -> nl1) -> JGraph nl el -> IO (JGraph nl el)
+mapNode f jgraph = return jgraph
+
+
+mapNodeWithKey :: (n -> nl0 -> nl1) -> JGraph nl el -> IO (JGraph nl el)
+mapNodeWithKey f jgraph = return jgraph
+
 
 ----------------------------------------------------------------------------------------
 -- Cypher Query Interface
 
-data CypherEdge = P String -- property string
+data CypherEdge = P String -- attribute string
                 | V String -- variable length path: "*", "*1..5", "*..6"
 
 data NodeType = Function | Type | App | Lit
