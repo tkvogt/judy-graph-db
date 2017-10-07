@@ -33,10 +33,13 @@ module JudyGraph (JGraph(..), Judy(..), Node(..), Edge(..),
                   isNull, lookupNode, lookupEdge,
                   -- * Changing node labels
                   mapNode, mapNodeWithKey,
+                  -- * Cypher
+                  (--|), (|--), (<--|), (|-->), (-~-), (-->), (<--), anyNode, executeOn
                  ) where
 
 import           Control.Monad(foldM)
 import qualified Data.Judy as J
+import           Data.List.NonEmpty(NonEmpty(..))
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict(Map)
 import           Data.Maybe(isJust, maybe, fromMaybe)
@@ -49,6 +52,7 @@ import Graph.FastAccess(JGraph(..), Judy(..), NodeAttribute, EdgeAttribute, Node
                   deleteNodeJ, deleteEdgeJ,
                   unionJ, mapNodeJ, mapNodeWithKeyJ,
                   allChildEdges, allChildNodesFromEdges)
+import Graph.Cypher
 import Debug.Trace
 
 ------------------------------------------------------------------------------------------------
@@ -56,7 +60,7 @@ import Debug.Trace
 
 -- | If you don't need complex node/edge labels use 'fromListJudy'
 fromList :: (NodeAttribute nl, EdgeAttribute el) =>
-            [(Node, nl)] -> [(Edge, [el])] -> [(RangeStart, nl)] -> IO (JGraph nl el)
+            [(Node, nl)] -> [(Edge, [el])] -> NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
 fromList nodes edges ranges = do
     jgraph <- empty ranges
     ngraph <- insertNodes jgraph nodes

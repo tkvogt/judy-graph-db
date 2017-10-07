@@ -2,6 +2,7 @@ module Main where
 
 import           Data.Bits((.&.))
 import qualified Data.Judy as J
+import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Word(Word8, Word16, Word32)
 
 import qualified JudyGraph as Graph
@@ -36,7 +37,7 @@ instance EdgeAttribute EdgeLabel where
 
 main :: IO ()
 main = do
-  jgraph <- Graph.fromList nodes edges [(0, TN 1), (10, FN 1), (20, AN 1)]
+  jgraph <- Graph.fromList nodes edges ranges
   putStrLn "done"
 
  where
@@ -45,3 +46,5 @@ main = do
 
   edges :: [(Graph.Edge, [EdgeLabel])]
   edges = []
+
+  ranges = NonEmpty.fromList [(0, TN 1), (10, FN 1), (20, AN 1)]

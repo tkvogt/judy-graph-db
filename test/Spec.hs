@@ -2,6 +2,7 @@ module Main where
 
 import           Data.Bits((.&.))
 import qualified Data.Judy as J
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import           Data.Word(Word32)
@@ -141,7 +142,7 @@ main = do
   n2 = 2
   n3 = 2
 
-  ranges = [(0, TN 1), (10, FN 1), (20, AN 1)]
+  ranges = NonEmpty.fromList [(0, TN 1), (10, FN 1), (20, AN 1)]
 
   nodes :: [(Graph.Node, NodeLabel)]
   nodes = [(n0, FN 1), (n1, TN 2)]

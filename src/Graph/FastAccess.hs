@@ -8,8 +8,8 @@ Maintainer  :  Tillmann Vogt <tillk.vogt@gmail.com>
 Stability   :  provisional
 Portability :  POSIX
 
-This module only contains functions that don't use the secondary data.map structures
-It should be memory efficient and fast
+This module only contains functions that don't use the secondary data.map structures.
+It should be memory efficient and fast.
 
 A graph consists of nodes and edges, that point from one node to another.
 To encode this with a key-value storage (Judy Arrays), we encode the key as a (node,edge)-pair
@@ -82,7 +82,8 @@ module Graph.FastAccess (
 
 import           Data.Bits((.&.), (.|.))
 import qualified Data.Judy as J
-import           Data.List.NonEmpty()
+import qualified Data.List.NonEmpty as NonEmpty
+import           Data.List.NonEmpty(NonEmpty(..))
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict(Map)
 import           Data.Maybe(fromJust, isJust, isNothing, maybe, catMaybes, fromMaybe)
@@ -122,7 +123,7 @@ data JGraph nl el =
            complexNodeLabelMap :: Maybe (Map Word32 nl), -- ^ A node attr that doesn't fit into 64bit
            complexEdgeLabelMap :: Maybe (Map (Node,Node) [el]),
              -- ^ An edge attr that doesn't fit into 64bit
-           ranges :: [(RangeStart, nl)] -- ^ an attribute for every range
+           ranges :: NonEmpty (RangeStart, nl) -- ^ a nonempty list with an attribute for every range
          }
 
 -- | Convert a complex node label to an attribute with (n<32) bits
@@ -149,7 +150,7 @@ class EdgeAttribute el where
 -- | Generate two empty judy arrays and two empty data.maps for complex node and edge labels
 --
 -- The purpose of the range list is to give a special interpretation of edges depending on the node type.
-empty :: [(RangeStart, nl)] -> IO (JGraph nl el)
+empty :: NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
 empty ranges = do
   j <- J.new :: IO Judy
   mj <- J.new :: IO Judy
@@ -159,7 +160,7 @@ empty ranges = do
 -- | No usage of secondary Data.Map structure
 -- Faster and more memory efficient but labels have to fit into less than 32 bits
 fromListJudy :: (NodeAttribute nl, EdgeAttribute el) =>
-                [(Edge, Maybe nl, Maybe nl, [el])] -> [(RangeStart, nl)] -> IO (JGraph nl el)
+                [(Edge, Maybe nl, Maybe nl, [el])] -> NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
 fromListJudy nodeEdges ranges = do
     jgraph <- empty ranges
     mapM (insertNodeEdges jgraph) nodeEdges
@@ -250,7 +251,7 @@ hasNodeAttr node nLabel = (node .&. (bitmask bits)) == w32
 --   to have at least one range
 attr :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> Node -> Word32
 attr jgraph node = node .&. (bitmask bits)
-  where (bits, w32) = fastNodeAttr (snd (head (ranges jgraph)))
+  where (bits, w32) = fastNodeAttr (snd (NonEmpty.head (ranges jgraph)))
 
 
 -- | Change the node attribute of a node-edge
@@ -291,7 +292,7 @@ mapNodeJ f jgraph = do
     return jgraph
   where
     j = graph jgraph
-    (bits, _) = fastNodeAttr (snd (head (ranges jgraph)))
+    (bits, _) = fastNodeAttr (snd (NonEmpty.head (ranges jgraph)))
 
 
 -- | Map a function (Node -> Word32 -> Word32) over all nodes that keeps the node index but
@@ -309,7 +310,7 @@ mapNodeWithKeyJ f jgraph = do
     return jgraph
   where
     j = graph jgraph
-    (bits, _) = fastNodeAttr (snd (head (ranges jgraph)))
+    (bits, _) = fastNodeAttr (snd (NonEmpty.head (ranges jgraph)))
 
 ------------------------------------------------------------------------------------------
 -- | A node-edge is deleted by deleting the key in the judy array.
@@ -506,10 +507,12 @@ nodeWithMaybeLabel node (Just nl) = node .|. (snd (fastNodeAttr nl))
 --   that belongs to the node
 nodeLabel :: NodeAttribute nl => JGraph nl el -> Node -> nl
 nodeLabel jgraph node = nl (ranges jgraph)
-  where nl ((range0,label0):(range1,label1):rs)
-              | node >= range0 && node < range1 = label0
+  where nl rs | (length rs >= 2) &&
+                node >= (fst (NonEmpty.head rs)) &&
+                node < (fst (head (NonEmpty.tail rs))) = snd (NonEmpty.head rs)
+              -- ((range0,label0):(range1,label1):rs)
+              | (length rs == 1) = snd (NonEmpty.head rs)
               | otherwise = nl rs
-        nl [(range,label)] = label
 
 
 {-# INLINE buildWord64 #-}

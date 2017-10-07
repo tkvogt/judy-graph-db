@@ -24,7 +24,7 @@ import           Data.Set(Set)
 import qualified Data.Text as T
 import           Data.Text(Text)
 import           Data.Word(Word8, Word16, Word32)
-import JudyGraph(JGraph(..), Judy(..))
+import Graph.FastAccess(JGraph(..), Judy(..))
 import Debug.Trace
 
 -- A little rant
