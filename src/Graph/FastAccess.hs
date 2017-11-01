@@ -91,7 +91,7 @@ import qualified Data.Text as T
 import           Data.Text(Text)
 import           Data.Word(Word8, Word16, Word32)
 import           Foreign.Marshal.Alloc(allocaBytes)
-import           Foreign.Ptr(castPtr)
+import           Foreign.Ptr(castPtr, plusPtr)
 import           Foreign.Storable(peek, pokeByteOff)
 import           System.IO.Unsafe(unsafePerformIO)
 
@@ -528,7 +528,7 @@ buildWord64 w0 w1
 extractFirstWord32 :: Word -> Word32
 extractFirstWord32 w
     = unsafePerformIO . allocaBytes 4 $ \p -> do
-        pokeByteOff p 0 w -- 4?
+        pokeByteOff p 0 w
         (peek (castPtr p))
 
 
@@ -536,6 +536,6 @@ extractFirstWord32 w
 extractSecondWord32 :: Word -> Word32
 extractSecondWord32 w
     = unsafePerformIO . allocaBytes 4 $ \p -> do
-        pokeByteOff p 4 w
-        (peek (castPtr p))
+        pokeByteOff p 0 w
+        (peek (castPtr (plusPtr p 4)))
 
