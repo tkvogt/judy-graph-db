@@ -1,8 +1,6 @@
 name:                judy-graph
 version:             0.1.0.0
--- synopsis:
--- description:
-homepage:            https://github.com/githubuser/judy-graph#readme
+homepage:            https://github.com/tkvogt/judy-graph#readme
 license:             BSD3
 license-file:        LICENSE
 author:              Tillmann Vogt
@@ -15,11 +13,19 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     JudyGraph, Graph.FastAccess, Graph.Cypher
+  exposed-modules:     JudyGraph, JudyGraph.FastAccess, JudyGraph.Cypher
   build-depends:       base >= 4.7 && < 5
+                     , cassava
+                     , conduit >= 1.2.8
+                     , conduit-combinators
                      , containers
                      , judy
+                     , mtl
                      , semigroups
+                     , streaming
+                     , streaming-cassava
+                     , streaming-bytestring
+                     , streaming-with
                      , text
                      , vector
 
@@ -51,4 +57,4 @@ test-suite judy-graph-test
 
 source-repository head
   type:     git
-  location: https://github.com/githubuser/judy-graph
+  location: https://github.com/tkvogt/judy-graph

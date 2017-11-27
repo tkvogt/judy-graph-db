@@ -8,8 +8,8 @@ import qualified Data.Text as T
 import           Data.Word(Word32)
 import           Test.Hspec
 
-import qualified Graph.FastAccess as Graph
-import           Graph.FastAccess
+import qualified JudyGraph.FastAccess as Graph
+import           JudyGraph.FastAccess
 import qualified JudyGraph as Graph
 import           JudyGraph
 import Debug.Trace
@@ -32,13 +32,9 @@ instance NodeAttribute NodeLabel where
     fastNodeAttr (FN nl) = (8, (fromIntegral (nl .&. 0xf000))) -- take 8 leading bit
     fastNodeAttr (AN nl) = (8, (fromIntegral (nl .&. 0xf000))) -- take 8 leading bit
 
-    fastNodeEdgeAttr (TN nl) el = (8,0) -- (Bits, Word32))
-    fastNodeEdgeAttr (FN nl) el = (0,0)
-    fastNodeEdgeAttr (AN nl) el = (0,0)
-
 
 instance EdgeAttribute EdgeLabel where
-    fastEdgeAttr jgraph node el = fastNodeEdgeAttr (nodeLabel jgraph node) el
+    fastEdgeAttr el = (8,0) -- (Bits, Word32))
 
 main :: IO ()
 main = do

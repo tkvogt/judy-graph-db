@@ -7,7 +7,7 @@ import           Data.Word(Word8, Word16, Word32)
 
 import qualified JudyGraph as Graph
 import JudyGraph(Judy) 
-import Graph.FastAccess
+import JudyGraph.FastAccess
 
 
 data EdgeLabel = Word32  -- can be complex (like a record)
@@ -26,13 +26,9 @@ type AppNode = Word32
 instance NodeAttribute NodeLabel where
     fastNodeAttr (TN nl) = (8, (fromIntegral (nl .&. 0xf000))) -- take 8 leading bit
 
-    fastNodeEdgeAttr (TN nl) el = (8,0) -- (Bits, Word32))
-    fastNodeEdgeAttr (FN nl) el = (0,0)
-    fastNodeEdgeAttr (AN nl) el = (0,0)
-
 
 instance EdgeAttribute EdgeLabel where
-    fastEdgeAttr jgraph node el = fastNodeEdgeAttr (nodeLabel jgraph node) el
+    fastEdgeAttr el = (8,0) -- (Bits, Word32))
 
 
 main :: IO ()

@@ -14,15 +14,19 @@ JudyGraph uses Judy arrays as a fast key-value storage (key: 64 bit, value: 32 b
 This module contains functions that use the secondary structures 'complexNodeLabelMap' and
 'complexEdgeLabelMap' for more complex node/edge-labels that don't fit into 32 bit.
 You only have to write class instances that specify how node and edge labels are
-converted into 32 bit labels: 'NodeAttribute', 'EdgeAttribute'
-
-The functions in this module also generate fast access node-edges with the "Graph.FastAccess" module.
-This is especially helpful if you have e.g. 100.000 edges adjacent to a node and you 
+converted into 32 bit labels: 'NodeAttribute', 'EdgeAttribute'. This shrinking obviously has 
+to keep the information that is needed to quickly query the graph.
+E.g. if you have e.g. 100.000 edges adjacent to a node and you 
 don't want to test them all for a certain label.
 
 If you want to save memory and insertion-time and
 if you can put each node/edge-label in less than 32 bit
 then use only functions in the "Graph.FastAccess" module
+
+If on the other hand there is enough space and the nodes or edges have much more info 
+then the functions in this module generate fast access node-edges with the "Graph.FastAccess" module.
+
+
 -}
 module JudyGraph (JGraph(..), Judy(..), Node(..), Edge(..),
                   -- * Construction
@@ -46,13 +50,13 @@ import           Data.Maybe(isJust, maybe, fromMaybe)
 import qualified Data.Text as T
 import           Data.Text(Text)
 import           Data.Word(Word8, Word16, Word32)
-import Graph.FastAccess(JGraph(..), Judy(..), NodeAttribute, EdgeAttribute, Node, Edge, RangeStart,
+import JudyGraph.FastAccess(JGraph(..), Judy(..), NodeAttribute, EdgeAttribute, Node, Edge, RangeStart,
                   empty, fromListJudy, nullJ, buildWord64,
                   nodeWithLabel, nodeWithMaybeLabel, insertNodeEdges, updateNodeEdges,
                   deleteNodeJ, deleteEdgeJ,
                   unionJ, mapNodeJ, mapNodeWithKeyJ,
                   allChildEdges, allChildNodesFromEdges)
-import Graph.Cypher
+import JudyGraph.Cypher
 import Debug.Trace
 
 ------------------------------------------------------------------------------------------------
