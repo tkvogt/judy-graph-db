@@ -225,12 +225,12 @@ insertNodeEdge :: (NodeAttribute nl, EdgeAttribute el) =>
                   JGraph nl el -> (Edge, Maybe nl, Maybe nl, el) -> IO ()
 insertNodeEdge jgraph ((n0, n1), nl0, nl1, edgeLabel) = do
     -- the enumgraph has the number of adjacent edges at index 0
-    let edgeCountKey = buildWord64 n0Key 0
-    edgeCount <- J.lookup edgeCountKey mj
-    if isNothing edgeCount then J.insert edgeCountKey 1 mj -- the first edge is added, set counter to 1
-                           else J.insert edgeCountKey ((fromJust edgeCount)+1) mj -- inc counter by 1
-    let enumKey = buildWord64 n0Key ((fromMaybe 0 edgeCount)+1)
-    J.insert enumKey n1 mj
+--    let edgeCountKey = buildWord64 n0Key 0
+--    edgeCount <- J.lookup edgeCountKey mj
+--    if isNothing edgeCount then J.insert edgeCountKey 1 mj -- the first edge is added, set counter to 1
+--                           else J.insert edgeCountKey ((fromJust edgeCount)+1) mj -- inc counter by 1
+--    let enumKey = buildWord64 n0Key ((fromMaybe 0 edgeCount)+1)
+--    J.insert enumKey n1 mj
 
     -------------------------------------
     -- An edge consists of an attribute and a counter
@@ -238,16 +238,15 @@ insertNodeEdge jgraph ((n0, n1), nl0, nl1, edgeLabel) = do
     let edgeAttrCountKey = buildWord64 n0Key (fastEdgeAttrBase edgeLabel)
     maybeEdgeAttrCount <- J.lookup edgeAttrCountKey j
     let edgeAttrCount = if isJust maybeEdgeAttrCount then fromJust maybeEdgeAttrCount else 0
-    let newValKey = key (edgeAttrCount+1)
+    let newValKey = buildWord64 n0Key (snd $ fastEdgeAttr edgeLabel)
     J.insert edgeAttrCountKey (edgeAttrCount+1) j
--- (Debug.Trace.trace (show (n0, n1) ++ showAsHex edgeAttrCountKey ++" "++ show edgeAttrCount ++" "++ showAsHex newValKey ++" "++ showAsHex32 n1Key)
+--  (Debug.Trace.trace (show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showAsHex32 n0Key ++" "++ showAsHex32 (snd $ fastEdgeAttr edgeLabel)) j)
     J.insert newValKey n1Key j
   where
     j = graph jgraph
     mj = enumGraph jgraph
     n0Key = if isJust nl0 then nodeWithLabel n0 (fromJust nl0) else n0
     n1Key = if isJust nl1 then nodeWithLabel n1 (fromJust nl1) else n1
-    key i = buildWord64 n0Key (i + (snd $ fastEdgeAttr edgeLabel))
     nLabel0 = if isJust nl0 then fromJust nl0 else nodeLabel jgraph n0
 
 
@@ -452,12 +451,13 @@ adjacentNodesByAttr :: (NodeAttribute nl, EdgeAttribute el) =>
                        JGraph nl el -> Node -> el -> IO [(EdgeAttr, Node)]
 adjacentNodesByAttr jgraph node el = do
     n <- J.lookup key j
-    if isJust n -- (Debug.Trace.trace ("valAdj " ++ show n ++ " " ++ show node ++ " " ++ showAsHex key ++ " " ++ showAsHex32 attr) n)
-      then lookupJudyNodes j node attr 1 ((fromJust n)+1)
+    if isJust (Debug.Trace.trace ("valAdj " ++ show n ++ " " ++ show node ++ " " ++
+                showAsHex key ++ " " ++ showAsHex32 attr ++ show (unsafePerformIO $ lookupJudyNodes j node attr 1 (fromJust n))) n)
+      then lookupJudyNodes j node attr 1 (fromJust n)
       else return []
   where
     nl = nodeLabel jgraph node
-    (bits, attr) = fastEdgeAttr el -- InTy 0 False -- 2^31
+    attr = fastEdgeAttrBase el -- InTy 0 False -- 2^31
     key = buildWord64 node attr
     j = graph jgraph
 
@@ -482,8 +482,11 @@ adjacentNodesByIndex jgraph node (start, end) = do
 lookupJudyNodes :: Judy -> Node -> EdgeAttr -> Index -> End -> IO [(EdgeAttr, Node)]
 lookupJudyNodes j node el i n = do
     val <- J.lookup key j
-    next <- if i < n then lookupJudyNodes j node el (i+1) n else return []
-    return (if isJust val then ((el, fromJust val) : next) else next)
+    next <- if i <= (Debug.Trace.trace (" v " ++ showAsHex32 node ++" "++ showAsHex32 (el+i) ++" "++ show val) n)
+                 then lookupJudyNodes j node el (i+1) n
+                 else return []
+    return (if isJust val then ((el, fromJust val) : next)
+                          else next)
   where
     key = buildWord64 node (el + i)
 
