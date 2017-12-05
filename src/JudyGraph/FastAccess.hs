@@ -196,7 +196,11 @@ insertCSVEdgeStream jgraph path newEdge = do
   insertCSVEdge :: Either CsvParseException [String] -> IO ()
   insertCSVEdge (Right edgeProp) = do insEdge (newEdge edgeProp)
   insertCSVEdge (Left message) = do return ()
-  insEdge ((n0, n1), edgeLabel, Nothing) = insertNodeEdge jgraph ((n0, n1), Nothing, Nothing, edgeLabel)
+  insEdge ((n0, n1), edgeLabel, Nothing) =
+     insertNodeEdge jgraph ((n0, n1), Nothing, Nothing, edgeLabel)
+--       Debug.Trace.trace ("oneway " ++ show n0 ++ " " ++ show n1 ++ " "
+--                                    ++ show edgeLabel ++ " " ++ showAsHex32 (snd $ fastEdgeAttr edgeLabel)) edgeLabel)
+
   insEdge ((n0, n1), edgeLabel0, Just edgeLabel1) = do
      insertNodeEdge jgraph ((n0, n1), Nothing, Nothing, edgeLabel0)
 --          Debug.Trace.trace ("in " ++ show n0 ++ " " ++ show n1 ++ " "
@@ -237,17 +241,17 @@ insertNodeEdge jgraph ((n0, n1), nl0, nl1, edgeLabel) = do
 
     let edgeAttrCountKey = buildWord64 n0Key (fastEdgeAttrBase edgeLabel)
     maybeEdgeAttrCount <- J.lookup edgeAttrCountKey j
-    let edgeAttrCount = if isJust maybeEdgeAttrCount then fromJust maybeEdgeAttrCount else 0
+    let edgeAttrCount = fromMaybe 0 maybeEdgeAttrCount
     let newValKey = buildWord64 n0Key (snd $ fastEdgeAttr edgeLabel)
     J.insert edgeAttrCountKey (edgeAttrCount+1) j
---  (Debug.Trace.trace (show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showAsHex32 n0Key ++" "++ showAsHex32 (snd $ fastEdgeAttr edgeLabel)) j)
+-- (Debug.Trace.trace (show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showAsHex32 n0Key ++" "++ showAsHex32 (snd $ fastEdgeAttr edgeLabel)) j)
     J.insert newValKey n1Key j
   where
     j = graph jgraph
     mj = enumGraph jgraph
-    n0Key = if isJust nl0 then nodeWithLabel n0 (fromJust nl0) else n0
-    n1Key = if isJust nl1 then nodeWithLabel n1 (fromJust nl1) else n1
-    nLabel0 = if isJust nl0 then fromJust nl0 else nodeLabel jgraph n0
+    n0Key = maybe n0 (nodeWithLabel n0) nl0
+    n1Key = maybe n1 (nodeWithLabel n1) nl1
+    nLabel0 = fromMaybe (nodeLabel jgraph n0) nl0
 
 
 updateNodeEdges :: NodeAttribute nl =>
@@ -437,7 +441,8 @@ adjacentNodeByAttr jgraph node el = do
   where
     nl = nodeLabel jgraph node
     (bits, attr) = fastEdgeAttr el
-    key = buildWord64 node attr
+    key = -- Debug.Trace.trace ("adjacentNodeByAttr " ++ show node ++ " " ++ showAsHex32 attr ++ " " ++ showAsHex (buildWord64 node attr)) $
+          buildWord64 node attr
     j = graph jgraph
 
 
@@ -451,10 +456,8 @@ adjacentNodesByAttr :: (NodeAttribute nl, EdgeAttribute el) =>
                        JGraph nl el -> Node -> el -> IO [(EdgeAttr, Node)]
 adjacentNodesByAttr jgraph node el = do
     n <- J.lookup key j
-    if isJust (Debug.Trace.trace ("valAdj " ++ show n ++ " " ++ show node ++ " " ++
-                showAsHex key ++ " " ++ showAsHex32 attr ++ show (unsafePerformIO $ lookupJudyNodes j node attr 1 (fromJust n))) n)
-      then lookupJudyNodes j node attr 1 (fromJust n)
-      else return []
+    maybe (return []) (lookupJudyNodes j node attr 1) n
+--          (Debug.Trace.trace ("valAdj " ++ show n ++ " " ++ show node ++ " " ++ showAsHex key ++ " " ++ showAsHex32 attr) n)
   where
     nl = nodeLabel jgraph node
     attr = fastEdgeAttrBase el -- InTy 0 False -- 2^31
@@ -482,7 +485,7 @@ adjacentNodesByIndex jgraph node (start, end) = do
 lookupJudyNodes :: Judy -> Node -> EdgeAttr -> Index -> End -> IO [(EdgeAttr, Node)]
 lookupJudyNodes j node el i n = do
     val <- J.lookup key j
-    next <- if i <= (Debug.Trace.trace (" v " ++ showAsHex32 node ++" "++ showAsHex32 (el+i) ++" "++ show val) n)
+    next <- if i <= n -- (Debug.Trace.trace (" v " ++ showAsHex32 node ++" "++ showAsHex32 (el+i) ++" "++ show val) n)
                  then lookupJudyNodes j node el (i+1) n
                  else return []
     return (if isJust val then ((el, fromJust val) : next)
@@ -510,7 +513,7 @@ adjacentEdgeCount :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> Nod
 adjacentEdgeCount jgraph node = do
     let edgeCountKey = buildWord64 (nodeWithMaybeLabel node nl) 0 --the first index lookup is the count
     edgeCount <- J.lookup edgeCountKey mj
-    if isJust edgeCount then return (fromJust edgeCount) else return 0
+    return (fromMaybe 0 edgeCount)
   where
     nl = maybe Nothing (Map.lookup node) (complexNodeLabelMap jgraph)
     mj = enumGraph jgraph
