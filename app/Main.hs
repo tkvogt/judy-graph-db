@@ -11,7 +11,7 @@ import JudyGraph.FastAccess
 
 
 data EdgeLabel = W Word32  -- can be complex (like a record)
-                           -- figure out which attributes are important
+  deriving Show            -- figure out which attributes are important
                            -- for filtering edges
 
 data NodeLabel = TN TypeNode -- can be complex (like several records)
@@ -30,7 +30,8 @@ instance NodeAttribute NodeLabel where
 instance EdgeAttribute EdgeLabel where
     fastEdgeAttr el = (8,0) -- (Bits, Word32))
     fastEdgeAttrBase el = 0
-    csvToEdge _ _ = ((0,1), W 0, Nothing)
+    addCsvLine _ graph _ = return graph
+
 
 main :: IO ()
 main = do

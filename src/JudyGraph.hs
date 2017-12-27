@@ -16,7 +16,7 @@ This module contains functions that use the secondary structures 'complexNodeLab
 You only have to write class instances that specify how node and edge labels are
 converted into 32 bit labels: 'NodeAttribute', 'EdgeAttribute'. This shrinking obviously has 
 to keep the information that is needed to quickly query the graph.
-E.g. if you have e.g. 100.000 edges adjacent to a node and you 
+E.g. if you have e.g. 100.000 edges adjacent to a node and you
 don't want to test them all for a certain label.
 
 If you want to save memory and insertion-time and
@@ -63,7 +63,7 @@ import Debug.Trace
 -- Generation / Insertion
 
 -- | If you don't need complex node/edge labels use 'fromListJudy'
-fromList :: (NodeAttribute nl, EdgeAttribute el) =>
+fromList :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
             [(Node, nl)] -> [(Edge, [el])] -> NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
 fromList nodes edges ranges = do
     jgraph <- empty ranges
@@ -98,10 +98,10 @@ insertNodes jgraph nodes = do
     return newGraph    
 
 
-insertEdge :: (NodeAttribute nl, EdgeAttribute el) =>
+insertEdge :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
               JGraph nl el -> (Edge, [el]) -> IO (JGraph nl el)
 insertEdge jgraph ((n0,n1), edgeLabels) = do
-    insertNodeEdges jgraph ((n0, n1), nl0, nl1, edgeLabels)
+    insertNodeEdges False jgraph ((n0, n1), nl0, nl1, edgeLabels)
     return (jgraph { complexEdgeLabelMap = Just newEdgeLabelMap })
   where
     nl0 = maybe Nothing (Map.lookup n0) (complexNodeLabelMap jgraph)
@@ -115,7 +115,7 @@ insertEdge jgraph ((n0,n1), edgeLabels) = do
 
 
 -- | Insert several edges using 'insertEdge'
-insertEdges :: (NodeAttribute nl, EdgeAttribute el) =>
+insertEdges :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
                  JGraph nl el -> [(Edge, [el])] -> IO (JGraph nl el)
 insertEdges jgraph edges = do
     newGraph <- foldM insertEdge jgraph edges
@@ -127,15 +127,16 @@ insertEdges jgraph edges = do
 -- | Make a union of two graphs by making a union of 'complexNodeLabelMap' and 'complexEdgeLabelMap'
 -- but also calls 'unionJ' for a union of two judy arrays
 union :: JGraph nl el -> JGraph nl el -> IO (JGraph nl el)
-union (JGraph j0 enumJ0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0)
-      (JGraph j1 enumJ1 complexNodeLabelMap1 complexEdgeLabelMap1 ranges1) = do
+union (JGraph j0 enumJ0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0 n0)
+      (JGraph j1 enumJ1 complexNodeLabelMap1 complexEdgeLabelMap1 ranges1 n1) = do
 
     (newJudyGraph, newJudyEnum) <- unionJ (j0, enumJ0) (j1, enumJ1)
 
     return (JGraph newJudyGraph newJudyEnum
             (mapUnion complexNodeLabelMap0 complexNodeLabelMap1)
             (mapUnion complexEdgeLabelMap0 complexEdgeLabelMap1)
-            ranges0) -- assuming ranges are global
+            ranges0 -- assuming ranges are global
+            (n0+n1))
   where
 
     mapUnion (Just complexLabelMap0)
@@ -188,8 +189,8 @@ deleteEdge jgraph (n0,n1) = do
 
 -- | Are the judy arrays and nodeLabelMap and edgeLabelMap empty
 isNull :: JGraph nl el -> IO Bool
-isNull (JGraph graph enumGraph nodeLabelMap edgeLabelMap rs) = do
-  isNull <- nullJ (JGraph graph enumGraph nodeLabelMap edgeLabelMap rs)
+isNull (JGraph graph enumGraph nodeLabelMap edgeLabelMap rs n) = do
+  isNull <- nullJ (JGraph graph enumGraph nodeLabelMap edgeLabelMap rs n)
   return (isNull && (maybe True Map.null nodeLabelMap)
                  && (maybe True Map.null edgeLabelMap))
 

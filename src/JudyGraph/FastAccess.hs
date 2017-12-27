@@ -77,7 +77,9 @@ module JudyGraph.FastAccess (
     -- * Handling Labels
     nodeWithLabel, nodeWithMaybeLabel, nodeLabel,
     hasNodeAttr, attr, newNodeAttr, bitmask, invBitmask,
-    buildWord64, extractFirstWord32, extractSecondWord32
+    buildWord64, extractFirstWord32, extractSecondWord32,
+    -- * Displaying in hex for debugging
+    showAsHex, showAsHex32
   ) where
 
 import           Conduit
@@ -94,6 +96,8 @@ import qualified Data.Map.Strict as Map
 import           Data.Map.Strict(Map)
 import           Data.Maybe(fromJust, isJust, isNothing, maybe, catMaybes, fromMaybe)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy.IO as Text
+import qualified Data.Text.Lazy as Text
 import           Data.Text(Text)
 import           Data.Word(Word8, Word16, Word32)
 import           Foreign.Marshal.Alloc(allocaBytes)
@@ -134,7 +138,8 @@ data JGraph nl el =
            complexNodeLabelMap :: Maybe (Map Word32 nl), -- ^ A node attr that doesn't fit into 64bit
            complexEdgeLabelMap :: Maybe (Map (Node,Node) [el]),
              -- ^ An edge attr that doesn't fit into 64bit
-           ranges :: NonEmpty (RangeStart, nl) -- ^ a nonempty list with an attribute for every range
+           ranges :: NonEmpty (RangeStart, nl), -- ^ a nonempty list with an attribute for every range
+           nodeCount :: Word32
          }
 
 -- | Convert a complex node label to an attribute with (n<32) bits
@@ -153,11 +158,11 @@ class EdgeAttribute el where
   --   e.g. unicode leaves 10 bits of the 32 bits unused, that could be used for the direction 
   -- of the edge, if its a right or left edge in a binary tree, etc.
 
-    csvToEdge :: Map String Word32 -- ^ A map for looking up nodes by their name
+    addCsvLine :: NodeAttribute nl =>
+                  Map String Word32 -- ^ A map for looking up nodes by their name
+              -> JGraph nl el -- ^ A graph
               -> [String]    -- ^ A string for each element of the line
-              -> (Edge, el, Maybe el) -- ^ parsed Edge = (from, to) and arbitrary edge label
-                                                --   and maybe a backwards edge
-
+              -> IO (JGraph nl el) -- ^ The IO action that adds something to the graph
 
 ------------------------------------------------------------------------------------------------
 -- Generation / Insertion
@@ -169,89 +174,93 @@ empty :: NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
 empty ranges = do
   j <- J.new :: IO Judy
   mj <- J.new :: IO Judy
-  return (JGraph j mj Nothing Nothing ranges)
+  return (JGraph j mj Nothing Nothing ranges 0)
 
 
 -- | No usage of secondary Data.Map structure
 -- Faster and more memory efficient but labels have to fit into less than 32 bits
-fromListJudy :: (NodeAttribute nl, EdgeAttribute el) =>
-                [(Edge, Maybe nl, Maybe nl, [el])] -> NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
-fromListJudy nodeEdges ranges = do
+fromListJudy :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
+                Bool -> [(Edge, Maybe nl, Maybe nl, [el])] -> NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
+fromListJudy useMJ nodeEdges ranges = do
     jgraph <- empty ranges
-    mapM (insertNodeEdges jgraph) nodeEdges
-    return jgraph
+    foldM (insertNodeEdges useMJ) jgraph nodeEdges
+
 
 -- | In a dense graph the edges might be too big to be first stored in a list before being added to the judy graph.
 -- Therefore the edges are streamed from a .csv-file line by line and then added to the judy-graph. 
--- A function is passed that can parse a line into an edge. 
+-- A function is passed that can take a line (a list of strings) and add it to the graph.
 insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
-                       JGraph nl el -> FilePath -> ([String] -> (Edge, el, Maybe el)) -> IO ()
+                       JGraph nl el -> FilePath -> (JGraph nl el -> [String] -> IO (JGraph nl el)) -> IO (JGraph nl el)
 insertCSVEdgeStream jgraph path newEdge = do
-  S.withBinaryFileContents path ((S.mapM_ insertCSVEdge) . dec)
-  return ()
-
+  a <- S.withBinaryFileContents path ((S.foldM (insertCSVEdge newEdge) (return jgraph) return) . dec)
+  return (fst (S.lazily a))
  where
   dec :: B.ByteString IO () -> Stream (Of (Either CsvParseException [String])) IO (Either (CsvParseException, B.ByteString IO ()) ())
   dec = (S.decodeWithErrors S.defaultDecodeOptions NoHeader)
-  insertCSVEdge :: Either CsvParseException [String] -> IO ()
-  insertCSVEdge (Right edgeProp) = do insEdge (newEdge edgeProp)
-  insertCSVEdge (Left message) = do return ()
-  insEdge ((n0, n1), edgeLabel, Nothing) =
-     insertNodeEdge jgraph ((n0, n1), Nothing, Nothing, edgeLabel)
---       Debug.Trace.trace ("oneway " ++ show n0 ++ " " ++ show n1 ++ " "
---                                    ++ show edgeLabel ++ " " ++ showAsHex32 (snd $ fastEdgeAttr edgeLabel)) edgeLabel)
 
-  insEdge ((n0, n1), edgeLabel0, Just edgeLabel1) = do
-     insertNodeEdge jgraph ((n0, n1), Nothing, Nothing, edgeLabel0)
---          Debug.Trace.trace ("in " ++ show n0 ++ " " ++ show n1 ++ " "
---                                   ++ show edgeLabel0 ++ " " ++ showAsHex32 (snd $ fastEdgeAttr edgeLabel0) ++ " "
---                                   ++ show edgeLabel1 ++ " " ++ showAsHex32 (snd $ fastEdgeAttr edgeLabel1)) edgeLabel0)
-     insertNodeEdge jgraph ((n1, n0), Nothing, Nothing, edgeLabel1)
+
+-- | A helper function for insertCSVEdgeStream
+insertCSVEdge :: (NodeAttribute nl, EdgeAttribute el) =>
+                 (JGraph nl el -> [String] -> IO (JGraph nl el))
+               -> JGraph nl el -> Either CsvParseException [String] -> IO (JGraph nl el)
+insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
+insertCSVEdge newEdge g (Left message)   = return g
 
 
 -- | The main insertion function
-insertNodeEdgeList :: (NodeAttribute nl, EdgeAttribute el) =>
-                   JGraph nl el -> [(Edge, Maybe nl, Maybe nl, [el])] -> IO ()
-insertNodeEdgeList jgraph ls = do
-    mapM (insertNodeEdges jgraph) ls
-    return ()
+insertNodeEdgeList :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
+                   Bool -> JGraph nl el -> [(Edge, Maybe nl, Maybe nl, [el])] -> IO (JGraph nl el)
+insertNodeEdgeList useMJ jgraph ls = do
+    foldM (insertNodeEdges useMJ) jgraph ls
+
 
 -- | Inserting several node-edges
-insertNodeEdges :: (NodeAttribute nl, EdgeAttribute el) =>
-                   JGraph nl el -> (Edge, Maybe nl, Maybe nl, [el]) -> IO ()
-insertNodeEdges jgraph ((n0, n1), nl0, nl1, edgeLabels) = do
-    mapM (insertNodeEdge jgraph) (map (\el -> ((n0, n1), nl0, nl1, el)) edgeLabels)
-    return ()
+insertNodeEdges :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
+                   Bool -> JGraph nl el -> (Edge, Maybe nl, Maybe nl, [el]) -> IO (JGraph nl el)
+insertNodeEdges useMJ jgraph ((n0, n1), nl0, nl1, edgeLabels) = do
+    foldM (insertNodeEdge useMJ) jgraph (map addN edgeLabels)
+  where addN el = ((n0, n1), nl0, nl1, el)
 
 
 -- | Build the graph without using the secondary Data.Map graph
-insertNodeEdge :: (NodeAttribute nl, EdgeAttribute el) =>
-                  JGraph nl el -> (Edge, Maybe nl, Maybe nl, el) -> IO ()
-insertNodeEdge jgraph ((n0, n1), nl0, nl1, edgeLabel) = do
-    -- the enumgraph has the number of adjacent edges at index 0
---    let edgeCountKey = buildWord64 n0Key 0
---    edgeCount <- J.lookup edgeCountKey mj
---    if isNothing edgeCount then J.insert edgeCountKey 1 mj -- the first edge is added, set counter to 1
---                           else J.insert edgeCountKey ((fromJust edgeCount)+1) mj -- inc counter by 1
---    let enumKey = buildWord64 n0Key ((fromMaybe 0 edgeCount)+1)
---    J.insert enumKey n1 mj
+--   If edge already exists overwrite it
+--   otherwise create a new edge and increase counter (that is at index 0)
+insertNodeEdge :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
+                  Bool -> JGraph nl el -> (Edge, Maybe nl, Maybe nl, el) -> IO (JGraph nl el)
+insertNodeEdge useMJ jgraph ((n0, n1), nl0, nl1, edgeLabel) = do
 
+    when useMJ (insertEnumEdge jgraph n0Key edgeAttr)
+    debugToCSV (n0Key,n1Key) edgeLabel
     -------------------------------------
     -- An edge consists of an attribute and a counter
-
     let edgeAttrCountKey = buildWord64 n0Key (fastEdgeAttrBase edgeLabel)
     maybeEdgeAttrCount <- J.lookup edgeAttrCountKey j
     let edgeAttrCount = fromMaybe 0 maybeEdgeAttrCount
-    let newValKey = buildWord64 n0Key (snd $ fastEdgeAttr edgeLabel)
-    J.insert edgeAttrCountKey (edgeAttrCount+1) j
--- (Debug.Trace.trace (show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showAsHex32 n0Key ++" "++ showAsHex32 (snd $ fastEdgeAttr edgeLabel)) j)
-    J.insert newValKey n1Key j
+    let newValKey = buildWord64 n0Key edgeAttr
+    isEdgeNew <- fmap isNothing (J.lookup newValKey j)
+    when isEdgeNew (J.insert edgeAttrCountKey (edgeAttrCount+1) j)
+    J.insert newValKey n1Key (Debug.Trace.trace (show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showAsHex32 n0Key ++" "++ showAsHex32 edgeAttr) j)
+    if isEdgeNew then return (jgraph { nodeCount = (nodeCount jgraph) + 1})
+                 else return jgraph
   where
     j = graph jgraph
-    mj = enumGraph jgraph
     n0Key = maybe n0 (nodeWithLabel n0) nl0
     n1Key = maybe n1 (nodeWithLabel n1) nl1
     nLabel0 = fromMaybe (nodeLabel jgraph n0) nl0
+    edgeAttr = snd (fastEdgeAttr edgeLabel)
+
+insertEnumEdge :: (NodeAttribute nl, EdgeAttribute el) =>
+                  JGraph nl el -> Node -> Node -> IO ()
+insertEnumEdge jgraph n0Key edgeAttr = do
+
+    edgeCount <- J.lookup edgeCountKey mj
+    if isNothing edgeCount then J.insert edgeCountKey 1 mj -- the first edge is added, set counter to 1
+                           else J.insert edgeCountKey ((fromJust edgeCount)+1) mj -- inc counter by 1
+    let enumKey = buildWord64 n0Key ((fromMaybe 0 edgeCount)+1)
+    J.insert enumKey edgeAttr mj
+  where
+    mj = enumGraph jgraph
+    edgeCountKey = buildWord64 n0Key 0 -- the enumgraph has the number of adjacent edges at index 0
 
 
 updateNodeEdges :: NodeAttribute nl =>
@@ -361,15 +370,15 @@ mapNodeWithKeyJ f jgraph = do
 --
 --   If you delete node or edges a lot you should currently not use this library or rebuild the
 --   graph regularly.
-deleteNodeEdgeList :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> [Word] -> IO ()
+deleteNodeEdgeList :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> [Word] -> IO (JGraph nl el)
 deleteNodeEdgeList jgraph ns = do
     mapM (\n -> J.delete n j) ns
-    return ()
+    return jgraph -- TODO counter?
   where
     j = graph jgraph
 
 -- | deletes all node-edges that contain this node, because the judy array only stores node-edges
-deleteNodeJ :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> Node -> IO ()
+deleteNodeJ :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> Node -> IO (JGraph nl el)
 deleteNodeJ jgraph node = do
     es <- allChildEdges jgraph node
     let nodeEdges = map (buildWord64 node) es
@@ -378,7 +387,7 @@ deleteNodeJ jgraph node = do
 -- | "deleteEdgeJ jgraph n0 n1" deletes the edge that points from n0 to n1
 --
 --   It is slow because it uses 'filterEdgesTo'. If possible use 'deleteNodeEdgeList'.
-deleteEdgeJ :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> Node -> Node -> IO ()
+deleteEdgeJ :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> Node -> Node -> IO (JGraph nl el)
 deleteEdgeJ jgraph n0 n1 = do
     es <- allChildEdges jgraph n0
     let nodeEdges = map (buildWord64 n0) es
@@ -427,7 +436,7 @@ insertNE nodeEdges j = do
 
 -- | Are the judy arrays of the graph both empty?
 nullJ :: JGraph nl el -> IO Bool
-nullJ (JGraph graph enumGraph complexNodeLabelMap complexEdgeLabelMap _) = do
+nullJ (JGraph graph enumGraph complexNodeLabelMap complexEdgeLabelMap _ _) = do
   g <- J.null graph
   e <- J.null enumGraph
   return (g && e)
@@ -457,7 +466,7 @@ adjacentNodesByAttr :: (NodeAttribute nl, EdgeAttribute el) =>
 adjacentNodesByAttr jgraph node el = do
     n <- J.lookup key j
     maybe (return []) (lookupJudyNodes j node attr 1) n
---          (Debug.Trace.trace ("valAdj " ++ show n ++ " " ++ show node ++ " " ++ showAsHex key ++ " " ++ showAsHex32 attr) n)
+-- (Debug.Trace.trace ("valAdj " ++ show n ++ " " ++ show node ++ " " ++ showAsHex key ++ " " ++ showAsHex32 attr) n)
   where
     nl = nodeLabel jgraph node
     attr = fastEdgeAttrBase el -- InTy 0 False -- 2^31
@@ -485,7 +494,7 @@ adjacentNodesByIndex jgraph node (start, end) = do
 lookupJudyNodes :: Judy -> Node -> EdgeAttr -> Index -> End -> IO [(EdgeAttr, Node)]
 lookupJudyNodes j node el i n = do
     val <- J.lookup key j
-    next <- if i <= n -- (Debug.Trace.trace (" v " ++ showAsHex32 node ++" "++ showAsHex32 (el+i) ++" "++ show val) n)
+    next <- if i <= (Debug.Trace.trace ("lookupJudy " ++ showAsHex32 node ++" "++ showAsHex32 (el+i) ++" "++ show val) n)
                  then lookupJudyNodes j node el (i+1) n
                  else return []
     return (if isJust val then ((el, fromJust val) : next)
@@ -601,6 +610,8 @@ extractSecondWord32 w
         pokeByteOff p 0 w
         (peek (castPtr (plusPtr p 4)))
 
+----------------------------------------------
+-- Debugging
 
 showAsHex :: Word -> String
 showAsHex n = showIt 16 n ""
@@ -619,4 +630,12 @@ showAsHex32 n = showIt 8 n ""
     showIt i x r = case quotRem x 16 of
                        (y, z) -> let c = intToDigit (fromIntegral z)
                                  in c `seq` showIt (i-1) y (c:r)
+
+
+-- Generate a file that can be displayed for debugging
+debugToCSV :: (EdgeAttribute el, Show el) => Edge -> el -> IO ()
+debugToCSV (n0,n1) edgeLabel =
+  do Text.appendFile ("ghc-core-graph/csv/debugNodes.csv") (Text.pack (show n0 ++ "\n" ++ show n1 ++ "\n"))
+     Text.appendFile ("ghc-core-graph/csv/debugEdges.csv") (Text.pack (show n0 ++ ","  ++ show n1 ++ "," ++ show edgeLabel ++ "\n"))
+
 
