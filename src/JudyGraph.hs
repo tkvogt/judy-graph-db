@@ -41,7 +41,7 @@ module JudyGraph (JGraph(..), Judy(..), Node(..), Edge(..),
                   (--|), (|--), (<--|), (|-->), (-~-), (-->), (<--), anyNode, executeOn
                  ) where
 
-import           Control.Monad(foldM)
+import           Control.Monad(foldM, when)
 import qualified Data.Judy as J
 import           Data.List.NonEmpty(NonEmpty(..))
 import qualified Data.Map.Strict as Map
@@ -68,8 +68,7 @@ fromList :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
 fromList nodes edges ranges = do
     jgraph <- empty ranges
     ngraph <- insertNodes jgraph nodes
-    egraph <- insertEdges ngraph edges
-    return egraph
+    insertEdges ngraph edges
 
 
 -- | Inserting a new node means either
@@ -84,18 +83,15 @@ insertNode jgraph (node, nl) = do
 
     let enumNodeEdge = buildWord64 (nodeWithLabel node nl) 0 --the first index lookup is the count
     numEdges <- J.lookup enumNodeEdge (enumGraph jgraph)
-    if isJust numEdges then do es <- allChildEdges jgraph node
-                               ns <- allChildNodesFromEdges jgraph es node
-                               mapM (updateNodeEdges jgraph node nl) (zip es ns)
-                               return ()
-                       else return ()
+    when (isJust numEdges) $
+        do es <- allChildEdges jgraph node
+           ns <- allChildNodesFromEdges jgraph es node
+           mapM_ (updateNodeEdges jgraph node nl) (zip es ns)
     return (jgraph { complexNodeLabelMap = Just newNodeAttr })
 
 -- | Insert several nodes using 'insertNode'
 insertNodes :: NodeAttribute nl => JGraph nl el -> [(Node, nl)] -> IO (JGraph nl el)
-insertNodes jgraph nodes = do
-    newGraph <- foldM insertNode jgraph nodes
-    return newGraph    
+insertNodes jgraph nodes = foldM insertNode jgraph nodes
 
 
 insertEdge :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
@@ -117,10 +113,7 @@ insertEdge jgraph ((n0,n1), edgeLabels) = do
 -- | Insert several edges using 'insertEdge'
 insertEdges :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
                  JGraph nl el -> [(Edge, [el])] -> IO (JGraph nl el)
-insertEdges jgraph edges = do
-    newGraph <- foldM insertEdge jgraph edges
-    return newGraph
-
+insertEdges jgraph edges = foldM insertEdge jgraph edges
 
 --------------------------------------------------------------------------------------
 
@@ -156,7 +149,7 @@ union (JGraph j0 enumJ0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0 n0)
 deleteNode :: (NodeAttribute nl, EdgeAttribute el) =>
               JGraph nl el -> Node -> IO (JGraph nl el)
 deleteNode jgraph node = do
-    let newNodeMap = maybe Nothing (Just . (Map.delete node)) (complexNodeLabelMap jgraph)
+    let newNodeMap = fmap (Map.delete node) (complexNodeLabelMap jgraph)
     deleteNodeJ jgraph node
     return (jgraph{ complexNodeLabelMap = newNodeMap })
   where
@@ -180,7 +173,7 @@ deleteEdge :: (NodeAttribute nl, EdgeAttribute el) =>
               JGraph nl el -> Edge -> IO (JGraph nl el)
 deleteEdge jgraph (n0,n1) = do
     deleteEdgeJ jgraph n0 n1
-    let newEdgeMap = maybe Nothing (Just . (Map.delete (n0,n1))) (complexEdgeLabelMap jgraph)
+    let newEdgeMap = fmap (Map.delete (n0,n1)) (complexEdgeLabelMap jgraph)
     return (jgraph { complexEdgeLabelMap = newEdgeMap })
 
 
@@ -213,7 +206,7 @@ lookupEdge graph (n0,n1) = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelM
 -- and call mapNodeJ (so that everything stays consistent)
 mapNode :: (nl -> nl) -> JGraph nl el -> IO (JGraph nl el)
 mapNode f jgraph = do
-  let newMap = maybe Nothing (Just . (Map.map f)) (complexNodeLabelMap jgraph)
+  let newMap = fmap (Map.map f) (complexNodeLabelMap jgraph)
   return (jgraph {complexNodeLabelMap = newMap})
 
 -- | This function only works on the secondary data.map structure
@@ -221,6 +214,6 @@ mapNode f jgraph = do
 -- and call mapNodeWithKeyJ (so that everything stays consistent)
 mapNodeWithKey :: (Node -> nl -> nl) -> JGraph nl el -> IO (JGraph nl el)
 mapNodeWithKey f jgraph = do
-  let newMap = maybe Nothing (Just . (Map.mapWithKey f)) (complexNodeLabelMap jgraph)
+  let newMap = fmap (Map.mapWithKey f) (complexNodeLabelMap jgraph)
   return (jgraph {complexNodeLabelMap = newMap})
 

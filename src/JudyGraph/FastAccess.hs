@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, OverloadedStrings, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts #-}
 {-|
 Module      :  Graph.FastAccess
 Copyright   :  (C) 2017 Tillmann Vogt
@@ -196,7 +196,7 @@ insertCSVEdgeStream jgraph path newEdge = do
   return (fst (S.lazily a))
  where
   dec :: B.ByteString IO () -> Stream (Of (Either CsvParseException [String])) IO (Either (CsvParseException, B.ByteString IO ()) ())
-  dec = (S.decodeWithErrors S.defaultDecodeOptions NoHeader)
+  dec = S.decodeWithErrors S.defaultDecodeOptions NoHeader
 
 
 -- | A helper function for insertCSVEdgeStream
@@ -210,14 +210,14 @@ insertCSVEdge newEdge g (Left message)   = return g
 -- | The main insertion function
 insertNodeEdgeList :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
                    Bool -> JGraph nl el -> [(Edge, Maybe nl, Maybe nl, [el])] -> IO (JGraph nl el)
-insertNodeEdgeList useMJ jgraph ls = do
+insertNodeEdgeList useMJ jgraph ls =
     foldM (insertNodeEdges useMJ) jgraph ls
 
 
 -- | Inserting several node-edges
 insertNodeEdges :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
                    Bool -> JGraph nl el -> (Edge, Maybe nl, Maybe nl, [el]) -> IO (JGraph nl el)
-insertNodeEdges useMJ jgraph ((n0, n1), nl0, nl1, edgeLabels) = do
+insertNodeEdges useMJ jgraph ((n0, n1), nl0, nl1, edgeLabels) =
     foldM (insertNodeEdge useMJ) jgraph (map addN edgeLabels)
   where addN el = ((n0, n1), nl0, nl1, el)
 
@@ -230,7 +230,7 @@ insertNodeEdge :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
 insertNodeEdge useMJ jgraph ((n0, n1), nl0, nl1, edgeLabel) = do
 
     when useMJ (insertEnumEdge jgraph n0Key edgeAttr)
-    debugToCSV (n0Key,n1Key) edgeLabel
+--    debugToCSV (n0Key,n1Key) edgeLabel
     -------------------------------------
     -- An edge consists of an attribute and a counter
     let edgeAttrCountKey = buildWord64 n0Key (fastEdgeAttrBase edgeLabel)
@@ -239,7 +239,8 @@ insertNodeEdge useMJ jgraph ((n0, n1), nl0, nl1, edgeLabel) = do
     let newValKey = buildWord64 n0Key edgeAttr
     isEdgeNew <- fmap isNothing (J.lookup newValKey j)
     when isEdgeNew (J.insert edgeAttrCountKey (edgeAttrCount+1) j)
-    J.insert newValKey n1Key (Debug.Trace.trace (show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showAsHex32 n0Key ++" "++ showAsHex32 edgeAttr) j)
+    J.insert newValKey n1Key j
+-- (Debug.Trace.trace (show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showAsHex32 n0Key ++" "++ showAsHex32 edgeAttr) j)
     if isEdgeNew then return (jgraph { nodeCount = (nodeCount jgraph) + 1})
                  else return jgraph
   where
@@ -293,7 +294,7 @@ nodesJ jgraph = do
 
 -- | eg for filtering after 'nodesJ'
 hasNodeAttr :: NodeAttribute nl => Node -> nl -> Bool
-hasNodeAttr node nLabel = (node .&. (bitmask bits)) == w32
+hasNodeAttr node nLabel = (node .&. bitmask bits) == w32
   where (bits, w32) = fastNodeAttr nLabel
 
 
@@ -301,7 +302,7 @@ hasNodeAttr node nLabel = (node .&. (bitmask bits)) == w32
 --   Using the fact that all nodes have the same number of bits for attributes and a graph needs
 --   to have at least one range
 attr :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> Node -> Word32
-attr jgraph node = node .&. (bitmask bits)
+attr jgraph node = node .&. bitmask bits
   where (bits, w32) = fastNodeAttr (snd (NonEmpty.head (ranges jgraph)))
 
 
@@ -312,7 +313,7 @@ newNodeAttr bits f nodeEdge = buildWord64 newNode edge
         edge = extractSecondWord32 nodeEdge
         invBm = invBitmask bits
         bm = bitmask bits
-        newNode = (node .&. (invBitmask bits)) .|. (f (node .&. (bitmask bits)))
+        newNode = (node .&. invBitmask bits) .|. f (node .&. bitmask bits)
 
 -- |@
 --   e.g. bitmask 4  = 11110000 00000000 00000000 00000000 (binary)
@@ -326,7 +327,7 @@ bitmask bits = (2 ^ bits) - 1  -- (2^32 - 2^(32-bits))
 --         invBitmask 10 = 00000000 00000000 00000011 11111111 (binary)
 -- @
 invBitmask :: Bits -> Word32
-invBitmask bits = (2^32 - 2^bits)
+invBitmask bits = 2^32 - 2^bits
 
 
 -- | Map a function (Word32 -> Word32) over all nodes that keeps the node index but 
@@ -339,7 +340,7 @@ mapNodeJ f jgraph = do
     let nodeValues = map (fromMaybe 0) nValues
     deleteNodeEdgeList jgraph ns
     let newNs = map (newNodeAttr bits f) ns
-    mapM (\(key,value) -> J.insert key value j) (zip newNs nodeValues)
+    mapM_ (\(key,value) -> J.insert key value j) (zip newNs nodeValues)
     return jgraph
   where
     j = graph jgraph
@@ -357,7 +358,7 @@ mapNodeWithKeyJ f jgraph = do
     deleteNodeEdgeList jgraph ns
     let newNode n = newNodeAttr bits (f (extractFirstWord32 n)) n
     let newNs = map newNode ns
-    mapM (\(key,value) -> J.insert key value j) (zip newNs nodeValues)
+    mapM_ (\(key,value) -> J.insert key value j) (zip newNs nodeValues)
     return jgraph
   where
     j = graph jgraph
@@ -372,7 +373,7 @@ mapNodeWithKeyJ f jgraph = do
 --   graph regularly.
 deleteNodeEdgeList :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> [Word] -> IO (JGraph nl el)
 deleteNodeEdgeList jgraph ns = do
-    mapM (\n -> J.delete n j) ns
+    mapM_ (\n -> J.delete n j) ns
     return jgraph -- TODO counter?
   where
     j = graph jgraph
@@ -427,7 +428,7 @@ getNodeEdges j = do
 -- | Used by unionJ
 insertNE :: [(NodeEdge, Node)] -> Judy -> IO ()
 insertNE nodeEdges j = do
-    mapM (\(key,value) -> J.insert key value j) nodeEdges
+    mapM_ (\(key,value) -> J.insert key value j) nodeEdges
     return ()
 
 
@@ -445,7 +446,7 @@ nullJ (JGraph graph enumGraph complexNodeLabelMap complexEdgeLabelMap _ _) = do
 -- | return a single node
 adjacentNodeByAttr :: (NodeAttribute nl, EdgeAttribute el) =>
                        JGraph nl el -> Node -> el -> IO (Maybe Node)
-adjacentNodeByAttr jgraph node el = do
+adjacentNodeByAttr jgraph node el =
     J.lookup key j
   where
     nl = nodeLabel jgraph node
@@ -494,10 +495,10 @@ adjacentNodesByIndex jgraph node (start, end) = do
 lookupJudyNodes :: Judy -> Node -> EdgeAttr -> Index -> End -> IO [(EdgeAttr, Node)]
 lookupJudyNodes j node el i n = do
     val <- J.lookup key j
-    next <- if i <= (Debug.Trace.trace ("lookupJudy " ++ showAsHex32 node ++" "++ showAsHex32 (el+i) ++" "++ show val) n)
+    next <- if i <= n -- (Debug.Trace.trace ("lookupJudy " ++ showAsHex32 node ++" "++ showAsHex32 (el+i) ++" "++ show val) n)
                  then lookupJudyNodes j node el (i+1) n
                  else return []
-    return (if isJust val then ((el, fromJust val) : next)
+    return (if isJust val then (el, fromJust val) : next
                           else next)
   where
     key = buildWord64 node (el + i)
@@ -579,10 +580,10 @@ nodeWithMaybeLabel node (Just nl) = node .|. (snd (fastNodeAttr nl))
 nodeLabel :: NodeAttribute nl => JGraph nl el -> Node -> nl
 nodeLabel jgraph node = nl (ranges jgraph)
   where nl rs | (length rs >= 2) &&
-                node >= (fst (NonEmpty.head rs)) &&
-                node < (fst (head (NonEmpty.tail rs))) = snd (NonEmpty.head rs)
+                node >= fst (NonEmpty.head rs) &&
+                node < fst (head (NonEmpty.tail rs)) = snd (NonEmpty.head rs)
               -- ((range0,label0):(range1,label1):rs)
-              | (length rs == 1) = snd (NonEmpty.head rs)
+              | length rs == 1 = snd (NonEmpty.head rs)
               | otherwise = nl rs
 
 
@@ -600,7 +601,7 @@ extractFirstWord32 :: Word -> Word32
 extractFirstWord32 w
     = unsafePerformIO . allocaBytes 4 $ \p -> do
         pokeByteOff p 0 w
-        (peek (castPtr p))
+        peek (castPtr p)
 
 
 {-# INLINE extractSecondWord32 #-}
@@ -608,7 +609,7 @@ extractSecondWord32 :: Word -> Word32
 extractSecondWord32 w
     = unsafePerformIO . allocaBytes 4 $ \p -> do
         pokeByteOff p 0 w
-        (peek (castPtr (plusPtr p 4)))
+        peek (castPtr (plusPtr p 4))
 
 ----------------------------------------------
 -- Debugging
@@ -635,7 +636,7 @@ showAsHex32 n = showIt 8 n ""
 -- Generate a file that can be displayed for debugging
 debugToCSV :: (EdgeAttribute el, Show el) => Edge -> el -> IO ()
 debugToCSV (n0,n1) edgeLabel =
-  do Text.appendFile ("ghc-core-graph/csv/debugNodes.csv") (Text.pack (show n0 ++ "\n" ++ show n1 ++ "\n"))
-     Text.appendFile ("ghc-core-graph/csv/debugEdges.csv") (Text.pack (show n0 ++ ","  ++ show n1 ++ "," ++ show edgeLabel ++ "\n"))
+  do Text.appendFile "ghc-core-graph/csv/debugNodes.csv" (Text.pack (show n0 ++ "\n" ++ show n1 ++ "\n"))
+     Text.appendFile "ghc-core-graph/csv/debugEdges.csv" (Text.pack (show n0 ++ ","  ++ show n1 ++ "," ++ show edgeLabel ++ "\n"))
 
 

@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-|
 Module      :  Cypher
 Description :  Cypher like edsl to make queries on the graph
