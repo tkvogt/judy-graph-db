@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric, OverloadedStrings, UnicodeSyntax #-}
 {-|
 Module      :  JudyGraph
 Description :  A fast and memory efficient graph library for dense graphs
@@ -24,8 +24,8 @@ if you can put each node/edge-label in less than 32 bit
 then use only functions in the "Graph.FastAccess" module
 
 If on the other hand there is enough space and the nodes or edges have much more info 
-then the functions in this module generate fast access node-edges with the "Graph.FastAccess" module.
-
+then the functions in this module generate fast access node-edges with the "Graph.FastAccess"
+module.
 
 -}
 module JudyGraph (JGraph(..), Judy(..), Node(..), Edge(..),
@@ -37,8 +37,19 @@ module JudyGraph (JGraph(..), Judy(..), Node(..), Edge(..),
                   isNull, lookupNode, lookupEdge,
                   -- * Changing node labels
                   mapNode, mapNodeWithKey,
-                  -- * Cypher
-                  (--|), (|--), (<--|), (|-->), (-~-), (-->), (<--), anyNode, executeOn
+                  -- * Cypher Query
+                  QueryN(..), QueryNE(..),
+                  -- * Cypher Query with Unicode
+                  (─┤),  (├─),  (<─┤),  (├─>),  (⟞⟝), (⟼),  (⟻),
+                  -- * Query Components
+                  CypherNode(..), CypherEdge(..),
+                  -- * Query Evaluation
+                  Table(..), GraphCreateReadUpdate(..),
+                  -- * Setting of Attributes, Labels,...
+                  SetAttr(..), AddLabel(..), Several(..), SetWHERE(..), AttrType(..), Attr(..),
+                  LabelNodes(..),
+                  -- * Unevaluated node/edge markers
+                  anyNode, nodes, edge
                  ) where
 
 import           Control.Monad(foldM, when)
@@ -50,8 +61,8 @@ import           Data.Maybe(isJust, maybe, fromMaybe)
 import qualified Data.Text as T
 import           Data.Text(Text)
 import           Data.Word(Word8, Word16, Word32)
-import JudyGraph.FastAccess(JGraph(..), Judy(..), NodeAttribute, EdgeAttribute, Node, Edge, RangeStart,
-                  empty, fromListJudy, nullJ, buildWord64,
+import JudyGraph.FastAccess(JGraph(..), Judy(..), NodeAttribute, EdgeAttribute, Node, Edge,
+                  RangeStart, empty, fromListJudy, nullJ, buildWord64,
                   nodeWithLabel, nodeWithMaybeLabel, insertNodeEdges, updateNodeEdges,
                   deleteNodeJ, deleteEdgeJ,
                   unionJ, mapNodeJ, mapNodeWithKeyJ,
@@ -59,7 +70,7 @@ import JudyGraph.FastAccess(JGraph(..), Judy(..), NodeAttribute, EdgeAttribute, 
 import JudyGraph.Cypher
 import Debug.Trace
 
-------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------
 -- Generation / Insertion
 
 -- | If you don't need complex node/edge labels use 'fromListJudy'
@@ -81,11 +92,12 @@ insertNode :: NodeAttribute nl => JGraph nl el -> (Node, nl) -> IO (JGraph nl el
 insertNode jgraph (node, nl) = do
     let newNodeAttr = maybe Map.empty (Map.insert node nl) (complexNodeLabelMap jgraph)
 
-    let enumNodeEdge = buildWord64 (nodeWithLabel node nl) 0 --the first index lookup is the count
+    -- the first index lookup is the count
+    let enumNodeEdge = buildWord64 (nodeWithLabel node nl) 0
     numEdges <- J.lookup enumNodeEdge (enumGraph jgraph)
     when (isJust numEdges) $
         do es <- allChildEdges jgraph node
-           ns <- allChildNodesFromEdges jgraph es node
+           ns <- allChildNodesFromEdges jgraph (node,es)
            mapM_ (updateNodeEdges jgraph node nl) (zip es ns)
     return (jgraph { complexNodeLabelMap = Just newNodeAttr })
 
@@ -117,8 +129,8 @@ insertEdges jgraph edges = foldM insertEdge jgraph edges
 
 --------------------------------------------------------------------------------------
 
--- | Make a union of two graphs by making a union of 'complexNodeLabelMap' and 'complexEdgeLabelMap'
--- but also calls 'unionJ' for a union of two judy arrays
+-- | Make a union of two graphs by making a union of 'complexNodeLabelMap' and 
+--   'complexEdgeLabelMap' but also calls 'unionJ' for a union of two judy arrays
 union :: JGraph nl el -> JGraph nl el -> IO (JGraph nl el)
 union (JGraph j0 enumJ0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0 n0)
       (JGraph j1 enumJ1 complexNodeLabelMap1 complexEdgeLabelMap1 ranges1 n1) = do
@@ -154,7 +166,7 @@ deleteNode jgraph node = do
     return (jgraph{ complexNodeLabelMap = newNodeMap })
   where
     nl = nodeWithMaybeLabel node (maybe Nothing (Map.lookup node) lmap)
-    mj = graph jgraph
+    mj = judyGraph jgraph
     lmap = complexNodeLabelMap jgraph
 
 
@@ -177,7 +189,7 @@ deleteEdge jgraph (n0,n1) = do
     return (jgraph { complexEdgeLabelMap = newEdgeMap })
 
 
-----------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------
 -- Query
 
 -- | Are the judy arrays and nodeLabelMap and edgeLabelMap empty
@@ -210,8 +222,8 @@ mapNode f jgraph = do
   return (jgraph {complexNodeLabelMap = newMap})
 
 -- | This function only works on the secondary data.map structure
--- You have to figure out a function (Node- > Word32 -> Word32) that is equivalent to (Node -> nl -> nl)
--- and call mapNodeWithKeyJ (so that everything stays consistent)
+-- You have to figure out a function (Node- > Word32 -> Word32) that is equivalent 
+-- to (Node -> nl -> nl) and call mapNodeWithKeyJ (so that everything stays consistent)
 mapNodeWithKey :: (Node -> nl -> nl) -> JGraph nl el -> IO (JGraph nl el)
 mapNodeWithKey f jgraph = do
   let newMap = fmap (Map.mapWithKey f) (complexNodeLabelMap jgraph)
