@@ -1,62 +1,81 @@
 module Main where
 
-import           Data.Bits((.&.))
+import           Data.Bits((.&.), shift)
 import qualified Data.Judy as J
 import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Word(Word8, Word16, Word32)
 
-import qualified JudyGraph as Graph
+import qualified JudyGraph as J
+import qualified JudyGraph.Cypher as Cy
 import JudyGraph
 import JudyGraph.FastAccess
 
 main :: IO ()
 main = do
-  jgraph <- Graph.fromList nodes edges ranges
-  query <- table jgraph (startNode --| raises |--> issue --| references |--> issue)
+  jgraph <- J.fromList False nodes dirEdges [] ranges
+  query <- table jgraph (simon --| raises |-- issue --| references |-- issue)
   putStrLn ("query result: " ++ show query)
  where
-  startNode = Graph.nodes [0] :: CypherNode NodeLabel EdgeLabel
-  raises = addAttr Attr Raises edge :: CypherEdge NodeLabel EdgeLabel
-  issue = Graph.anyNode :: CypherNode NodeLabel EdgeLabel
-  references = addAttr Attr References edge :: CypherEdge NodeLabel EdgeLabel
+  simon = Cy.nodes [0] :: CyN
+  raises = addAttr Attr Raises Cy.edge :: CyE
+  issue = Cy.labels [ISSUE] :: CyN
+  references = addAttr Attr References Cy.edge :: CyE
 
-  nodes :: [(Graph.Node, NodeLabel)]
+  nodes :: [(J.Node, NodeLabel)]
   nodes = [(0, PROGRAMMER), (1, PROGRAMMER),
            (2, ORGANISATION),
-           (3, ISSUE), (4, ISSUE),
-           (5, PULL_REQUEST)]
-
-  edges :: [(Graph.Edge, [EdgeLabel])]
-  edges = [((0,3), [Raises]),     -- PROGRAMMER Raises ISSUE
-           ((0,4), [Raises]),     -- PROGRAMMER Raises ISSUE
-           ((4,3), [References]), -- ISSUE References ISSUE
-           ((5,4), [References]), -- PULL_REQUEST Closes ISSUE
-           ((0,3), [Closes]),     -- PROGRAMMER Closes ISSUE
-           ((1,5), [Accepts]),    -- PROGRAMMER Accepts PULL_REQUEST
-           ((0,2), [BelongtsTO])] -- PROGRAMMER BelongtsTO ORGANISATION
+           (3, ISSUE), (4, ISSUE), (5, ISSUE), (6, ISSUE),
+           (7, PULL_REQUEST)]
 
   -- ranges are normally generated automatically from graph files, but here we do it by hand
-  ranges = NonEmpty.fromList [(0, PROGRAMMER), (2, ORGANISATION), (3, ISSUE), (5, PULL_REQUEST)]
+  ranges = NonEmpty.fromList [(0, PROGRAMMER), (2, ORGANISATION), (3, ISSUE), (7, PULL_REQUEST)]
 
---------------------------------------------------------------------
+  dirEdges :: [(J.Edge, [EdgeLabel])]
+  dirEdges = [((0,3), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((0,4), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((0,5), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((0,6), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((4,3), [References]), -- ISSUE References ISSUE
+              ((5,4), [Closes]),     -- PULL_REQUEST Closes ISSUE
+              ((0,3), [Closes]),     -- PROGRAMMER Closes ISSUE
+              ((1,5), [Accepts]),    -- PROGRAMMER Accepts PULL_REQUEST
+              ((0,2), [BelongtsTO])] -- PROGRAMMER BelongtsTO ORGANISATION
 
-data NodeLabel = PROGRAMMER | ORGANISATION | ISSUE | PULL_REQUEST deriving Show
+--------------------------------------------------------------------------------------------------
+
+type CyN = CypherNode NodeLabel EdgeLabel
+type CyE = CypherEdge NodeLabel EdgeLabel
+
+data NodeLabel = PROGRAMMER | ORGANISATION | ISSUE | PULL_REQUEST deriving (Eq, Show)
 
 -- | Can be complex (like a record). Figure out which attributes are important for filtering edges
-data EdgeLabel = Raises | Accepts | Closes | References | BelongtsTO deriving Show
+data EdgeLabel = Raises | Accepts | Closes | References | BelongtsTO | EdgeForward deriving Show
 
 instance NodeAttribute NodeLabel where
-    fastNodeAttr PROGRAMMER = (8, 1) -- take 8 leading bits
-    fastNodeAttr ORGANISATION = (8, 2)
-    fastNodeAttr ISSUE = (8, 3)
-    fastNodeAttr PULL_REQUEST = (8, 4)
+    fastNodeAttr _ = (8, 0) -- we don't use node attrs
 
 instance EdgeAttribute EdgeLabel where
-    fastEdgeAttr Raises     = (31,1)
-    fastEdgeAttr Accepts    = (31,2)
-    fastEdgeAttr Closes     = (31,3)
-    fastEdgeAttr References = (31,4)
-    fastEdgeAttr BelongtsTO = (31,5)
+    -- What a programmer can do
+    fastEdgeAttr Raises      = (8,0x1000001) -- take the 8 highest bits
+    fastEdgeAttr Accepts     = (8,0x2000001) -- 1 higher than fastEdgeAttrBase because of counter
+    fastEdgeAttr Closes      = (8,0x3000001)
+    fastEdgeAttr BelongtsTO  = (8,0x4000001)
 
+    -- What an issue can do
+    fastEdgeAttr References  = (8,0x5000001)
+
+    -- A property all edges can have
+    fastEdgeAttr EdgeForward = (8,0x80000000) -- the highest bit
+
+
+    fastEdgeAttrBase Raises     = 0x1000000
+    fastEdgeAttrBase Accepts    = 0x2000000
+    fastEdgeAttrBase Closes     = 0x3000000
+    fastEdgeAttrBase BelongtsTO = 0x4000000
+
+    fastEdgeAttrBase References = 0x5000000
+    fastEdgeAttrBase EdgeForward = 0x80000000
+
+    edgeForward = Just EdgeForward
     addCsvLine _ graph _ = return graph
 

@@ -74,13 +74,14 @@ import Debug.Trace
 -- Generation / Insertion
 
 -- | If you don't need complex node/edge labels use 'fromListJudy'
-fromList :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
-            [(Node, nl)] -> [(Edge, [el])] -> NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
-fromList nodes edges ranges = do
+fromList :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
+            Bool -> [(Node, nl)] -> [(Edge, [el])] -> [(Edge, [el])] ->
+            NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
+fromList overwrite nodes directedEdges edges ranges = do
     jgraph <- empty ranges
     ngraph <- insertNodes jgraph nodes
-    insertEdges ngraph edges
-
+    insertEdges overwrite ngraph (directedEdges ++ edges ++ (map rev edges))
+  where rev ((from,to), labels) = ((to,from), labels)
 
 -- | Inserting a new node means either
 --
@@ -106,10 +107,10 @@ insertNodes :: NodeAttribute nl => JGraph nl el -> [(Node, nl)] -> IO (JGraph nl
 insertNodes jgraph nodes = foldM insertNode jgraph nodes
 
 
-insertEdge :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
-              JGraph nl el -> (Edge, [el]) -> IO (JGraph nl el)
-insertEdge jgraph ((n0,n1), edgeLabels) = do
-    insertNodeEdges False jgraph ((n0, n1), nl0, nl1, edgeLabels)
+insertEdge :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
+              Bool -> JGraph nl el -> (Edge, [el]) -> IO (JGraph nl el)
+insertEdge overwrite jgraph ((n0,n1), edgeLabels) = do
+    insertNodeEdges False overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels)
     return (jgraph { complexEdgeLabelMap = Just newEdgeLabelMap })
   where
     nl0 = maybe Nothing (Map.lookup n0) (complexNodeLabelMap jgraph)
@@ -123,9 +124,9 @@ insertEdge jgraph ((n0,n1), edgeLabels) = do
 
 
 -- | Insert several edges using 'insertEdge'
-insertEdges :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
-                 JGraph nl el -> [(Edge, [el])] -> IO (JGraph nl el)
-insertEdges jgraph edges = foldM insertEdge jgraph edges
+insertEdges :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
+                 Bool -> JGraph nl el -> [(Edge, [el])] -> IO (JGraph nl el)
+insertEdges overwrite jgraph edges = foldM (insertEdge overwrite) jgraph edges
 
 --------------------------------------------------------------------------------------
 

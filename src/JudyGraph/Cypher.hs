@@ -16,23 +16,24 @@ EDSL in Haskell than a DSL that always misses a command. The ASCII art syntax co
 -}
 
 module JudyGraph.Cypher(
-                  -- * Cypher Query
-                  QueryN(..), QueryNE(..),
-                  -- * Cypher Query with Unicode
-                  (─┤),  (├─),  (<─┤),  (├─>),  (⟞⟝), (⟼),  (⟻),
-                  -- * Query Components
-                  CypherComp(..), CypherNode(..), CypherEdge(..),
-                  -- * Query Evaluation
-                  Table(..), GraphCreateReadUpdate(..), NE(..),
-                  -- * Setting of Attributes, Labels,...
-                  SetAttr(..), AddLabel(..), Several(..), SetWHERE(..), AttrType(..), Attr(..), EAttr(..),
-                  LabelNodes(..),
-                  -- * Unevaluated node/edge markers
-                  anyNode, nodes, edge
-                 ) where
+         -- * Cypher Query
+         QueryN(..), QueryNE(..),
+         -- * Cypher Query with Unicode
+         (─┤),  (├─),  (<─┤),  (├─>),  (⟞⟝), (⟼),  (⟻),
+         -- * Query Components
+         CypherComp(..), CypherNode(..), CypherEdge(..),
+         -- * Query Evaluation
+         Table(..), GraphCreateReadUpdate(..), NE(..),
+         -- * Setting of Attributes, Labels,...
+         SetAttr(..), AddLabel(..), Several(..), SetWHERE(..), AttrType(..), Attr(..), EAttr(..),
+         LabelNodes(..),
+         -- * Unevaluated node/edge markers
+         anyNode, labels, nodes, edge
+       ) where
 
 import qualified Data.Judy as J
-import           Data.List(sortBy)
+import           Data.List(sortBy, intercalate)
+import           Data.List.NonEmpty(toList)
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict(Map)
 import           Data.Maybe(fromJust, isJust, isNothing)
@@ -42,8 +43,9 @@ import qualified Data.Text as T
 import           Data.Text(Text)
 import           Data.Word(Word8, Word16, Word32)
 import JudyGraph.FastAccess(JGraph(..), Judy(..), Node, NodeEdge, NodeAttribute (..),
-                            EdgeAttribute(..), Bits(..), EdgeAttr, empty, nodesJ, hasNodeAttr,
-                            allChildNodesFromEdges, allChildEdges, adjacentEdgesByAttr, buildWord64)
+                            EdgeAttribute(..), Bits(..), EdgeAttr, empty, hasNodeAttr,
+                            allChildNodesFromEdges, allChildEdges, adjacentEdgesByAttr, buildWord64,
+                            showHex, showHex32)
 import Debug.Trace
 
 ----------------------------------------------------------------------
@@ -111,11 +113,11 @@ type Evaluated = Bool
 
 -- | After evluating the query the result is a list of CypherComps, which have to be evaluated again
 data CypherComp nl el = CN Evaluated (CypherNode nl el)
-                      | CE Evaluated (CypherEdge nl el)
+                      | CE Evaluated (CypherEdge nl el) deriving Show
 
 data (NodeAttribute nl, EdgeAttribute el) => CypherNode nl el =
   CypherNode { attr :: [Attr] -- ^Attribute: Highest bits of the 32 bit value
-             , labels :: LabelNodes nl
+             , labelsN :: LabelNodes nl
              , restr :: Maybe (Node -> Maybe (Map Node nl) -> Bool)
              , cols0 :: [CypherComp nl el] -- ^In the beginning empty, grows by evaluating the query
              }
@@ -125,7 +127,7 @@ data (NodeAttribute nl, EdgeAttribute el) => CypherEdge nl el =
              , edges :: Maybe [NodeEdge] -- ^Filled by evaluation
              , several :: Maybe (Int, Int)-- ^Variable number of edges tried for matching: eg "1..5"
              , edgeRestr :: Maybe (Word32 -> Maybe (Map (Node,Node) [el]) -> Bool)
-             , cols1 :: [CypherComp nl el] -- ^In the beginning empty, gathers the components of the query
+             , cols1 :: [CypherComp nl el] -- ^In the beginning empty, gathers the components of query
              }
 
 data CypherNodeG nl el =
@@ -141,6 +143,12 @@ data CypherEdgeG nl el =
               , edgeRestrG :: Maybe (Word32 -> Maybe (Map (Node,Node) [el]) -> Bool)
               , graphE :: JGraph nl el
               }
+
+instance (NodeAttribute nl, EdgeAttribute el) => Show (CypherNode nl el) where 
+  show (CypherNode _ _ _ _) = "CypherNode"
+
+instance (NodeAttribute nl, EdgeAttribute el) => Show (CypherEdge nl el) where 
+  show (CypherEdge _ _ _ _ _) = "CypherEdge"
 
 data Attr =
      Attribute (Bits, Word32) -- ^Each attribute uses bits that are used only by this attribute
@@ -175,8 +183,9 @@ class Several el where
   addSeveral :: Int -> Int -> el -> el
 
 class SetWHERE f a where
-  -- | 
-  -- * Nodes\/edges can be filtered with f by using the node\/edge index and the secondary data structure.
+  -- |
+  -- * Nodes\/edges can be filtered with f by using the node\/edge index and the secondary 
+  --   data structure.
   --
   -- * eg f :: Maybe (Node -> Maybe (Map Node nl) -> Bool)
   --
@@ -221,7 +230,7 @@ instance (NodeAttribute nl, EdgeAttribute el) =>
 --  * Currently its just [Attr1,Attr2,Attr3]
 genAttrs :: EdgeAttribute el => [EAttr el] -> [Word32]
 genAttrs as = map getW32 attrs
-  where getW32 (EAttribute e) = snd (fastEdgeAttr e)
+  where getW32 (EAttribute e) = fastEdgeAttrBase e
         attrs = filter isAttr as
         orths = filter isOrtho as
         isOrtho (EOrthogonal _) = True
@@ -235,46 +244,84 @@ outgoing = 0xf0000000 -- outgoing edge -- TODO check that this bit is unused
 
 instance (NodeAttribute nl, EdgeAttribute el) =>
          QueryNE (CypherNode nl el) (CypherEdge nl el) where
-  (--|)  node (CypherEdge a e s r c) = CypherEdge a e s r ((CN False node):c)
-  (|--)  edge (CypherNode a   l r c) = CypherNode a l r ((CE False edge):c)
-  (<--|) node (CypherEdge a e s r c) =
+
+  (--|) (CypherNode a0 l r0 c0) (CypherEdge a1 e s r1 c1)
+           | null c0   = CypherEdge a1 e s r1 (ce:cn:c0)
+           | otherwise = CypherEdge a1 e s r1 (   ce:c0)
+                                where cn = CN False (CypherNode a0 l r0 c0)
+                                      ce = CE False (CypherEdge a1 e s r1 c1)
+
+  (|--) (CypherEdge a0 e s r0 c0) (CypherNode a1 l r1 c1)
+           | null c0   = CypherNode a1 l r1 (cn:ce:c0)
+           | otherwise = CypherNode a1 l r1 (   cn:c0)
+                                where cn = CN False (CypherNode a1 l r1 c1)
+                                      ce = CE False (CypherEdge a0 e s r0 c0)
+
                -- Assuming the highest bit is not set by someone else
-               CypherEdge a e s r ((CN False node):c)
-  (|-->) (CypherEdge a0 e s r0 c0)
-         (CypherNode a1 l r1 c1) = CypherNode a1 l r1 ((CE False directedEdge):c1)
+  (<--|) (CypherNode a0 l r0 c0) (CypherEdge a1 e s r1 c1)
+            | null c0   = CypherEdge a1 e s r1 (ce:cn:c0)
+            | otherwise = CypherEdge a1 e s r1 (   ce:c0)
+                                where ce = CE False (CypherEdge a1 e s r1 c1)
+                                      cn = CN False (CypherNode a0 l r0 c0)
+
+  (|-->) (CypherEdge a0 e s r0 c0) (CypherNode a1 l r1 c1)
+            | null c0   = CypherNode a1 l r1 (cn:(CE False directedEdge):c0)
+            | otherwise = CypherNode a1 l r1 (                        cn:c0)
     where outEdgeAttr = EOrthogonal (fromJust edgeForward)
           directedEdge = CypherEdge (outEdgeAttr:a0) e s r0 c0
+          cn = CN False (CypherNode a1 l r1 c1)
 -- | isNothing edgeForward = error "You use |--> but haven't set edgeForward in EdgeLabel typeclass"
 
 instance (NodeAttribute nl, EdgeAttribute el) =>
          QueryN (CypherNode nl el) where
-  (-~-) node (CypherNode as ls r c) = CypherNode as ls r ((CN False node):c)
-  (-->) node (CypherNode as ls r c) =
-              CypherNode ((Orthogonal (bits, outgoing)):as) ls r ((CN False node):c)
-    where bits = 1
-  (<--) node (CypherNode a l r c) =
-              -- Assuming the highest bit is not set by someone else
-              CypherNode a l r ((CN False node):c)
+  (-~-) (CypherNode a0 l0 r0 c0) (CypherNode a1 l1 r1 c1)
+                 | null c0   = CypherNode a1 l1 r1 (n1:n0:c0)
+                 | otherwise = CypherNode a1 l1 r1 (   n1:c0)
+                                where n0 = CN False (CypherNode a0 l0 r0 c0)
+                                      n1 = CN False (CypherNode a1 l1 r1 c1)
 
-data NE nl = N (LabelNodes nl) | NE [NodeEdge] deriving Show
+  (-->) (CypherNode a0 l0 r0 c0) (CypherNode a1 l1 r1 c1)
+              | null c0   = CypherNode a1 l1 r1 (n1:n0:c0)
+              | otherwise = CypherNode a1 l1 r1 (   n1:c0)
+                                where n0 = CN False (CypherNode a0 l0 r0 c0)
+                                      n1 = CN False (CypherNode a1 l1 r1 c1)
+                              -- ((Orthogonal (1, outgoing)):a0)
+
+              -- Assuming the highest bit is not set by someone else
+  (<--) (CypherNode a0 l0 r0 c0) (CypherNode a1 l1 r1 c1)
+                | null c0   = CypherNode a1 l1 r1 (n1:n0:c0)
+                | otherwise = CypherNode a1 l1 r1 (   n1:c0)
+                                where n0 = CN False (CypherNode a0 l0 r0 c0)
+                                      n1 = CN False (CypherNode a1 l1 r1 c1)
+
+data NE nl = N (LabelNodes nl) | NE [NodeEdge]
+
+instance Show (NE nl) where
+  show (N (Nodes ns)) = "N " ++ show ns
+  show (NE es) = "E [" ++ (intercalate "," (map showHex es)) ++ "]"
 
 class Table nl el a where
   -- | Evaluate the query to a table
   table :: JGraph nl el -> a -> IO [NE nl]
 
-instance (NodeAttribute nl, EdgeAttribute el) =>
+instance (Eq nl, Show nl, NodeAttribute nl, EdgeAttribute el) =>
          Table nl el (CypherNode nl el) where
   -- table :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> CypherNode nl el -> IO [NE nl]
-  table graph cypherNode = evalToTable graph (cols0 cypherNode)
+  table graph cypherNode
+      | null (cols0 cypherNode) =
+          do evalN <- evalNode graph (CypherNode [] (labelsN cypherNode) Nothing [])
+             evalToTable graph [CN True evalN]
+      | otherwise = evalToTable graph (reverse (cols0 cypherNode))
 
-instance (NodeAttribute nl, EdgeAttribute el) =>
+instance (Eq nl, Show nl, NodeAttribute nl, EdgeAttribute el) =>
          Table nl el (CypherEdge nl el) where
   -- table :: (NodeAttribute nl, EdgeAttribute el) => JGraph nl el -> CypherEdge nl el -> IO [NE nl]
-  table graph cypherEdge = evalToTable graph (cols1 cypherEdge)
+  table graph cypherEdge | null (cols1 cypherEdge) = return []
+                         | otherwise = evalToTable graph (reverse (cols1 cypherEdge))
 
 ----------------------------------------------------------------------------------------------------
 
-evalToTable :: (NodeAttribute nl, EdgeAttribute el) =>
+evalToTable :: (Eq nl, Show nl, NodeAttribute nl, EdgeAttribute el) =>
                JGraph nl el -> [CypherComp nl el] -> IO [NE nl]
 evalToTable graph comps = do res <- runOn graph (Map.fromList (zip [0..] comps))
                              return (map toNE (Map.elems res))
@@ -284,106 +331,134 @@ evalToTable graph comps = do res <- runOn graph (Map.fromList (zip [0..] comps))
   toNE (CE _ (CypherEdge a Nothing s r c)) = NE []
 
 
-data Compl a = NCompl a | ECompl a
-fromC (NCompl a) = a
-fromC (ECompl a) = a
+data Compl a = NCompl a | ECompl a deriving Show
+
+fromC (_, NCompl a) = a
+fromC (_, ECompl a) = a
 
 -- | Estimating how much work it is to compute these elements
 -- TODO use counter of edge-attr
-compl (CN _ (CypherNode a AllNodes r c)) = NCompl 100000 -- Just a high number
-compl (CN _ (CypherNode a (Label ls) r c)) = NCompl (length ls) -- Around 1 to 100 labels
-compl (CN _ (CypherNode a (Nodes n)  r c)) = NCompl 0 -- Nodes contain a low number of (start) nodes
+compl (CN eval (CypherNode a AllNodes r c))   = (eval, NCompl 100000) -- Just a high number
+compl (CN eval (CypherNode a (Label ls) r c)) = (eval, NCompl (length ls)) -- Around 1 to 100 labels
+compl (CN eval (CypherNode a (Nodes n)  r c)) = (eval, NCompl 0) -- Nodes contain a low number of (start) nodes
                                      -- 0 because a single label will mostly contain much more nodes
-compl (CE _ (CypherEdge a e s r c)) = ECompl (length a)
+compl (CE eval (CypherEdge a e s r c))        = (eval, ECompl (length a))
 
 
-minI n i min [] = i
-minI n i min ((NCompl c):cs) | c < min   = minI (n+1) n c   cs
-                             | otherwise = minI (n+1) i min cs
-minI n i min ((ECompl c):cs) = minI (n+1) i min cs -- skip edges
+minI n i min [] = i -- Debug.Trace.trace ("i " ++ show i) i
+minI n i min ((True, _):cs) = -- Debug.Trace.trace ("eTrue " ++ show i)
+                              (minI (n+1) i min cs) -- skip evaluated nodes
+
+minI n i min ((False, NCompl c):cs) | c < min   = -- Debug.Trace.trace ("c < min"++ show i)
+                                                  (minI (n+1) n c   cs)
+                                    | otherwise = -- Debug.Trace.trace ("other " ++ show (i,c,min) )
+                                                  (minI (n+1) i min cs)
+
+minI n i min ((False, ECompl c):cs) = -- Debug.Trace.trace ("e " ++ show i)
+                                      (minI (n+1) i min cs) -- skip edges
+
+unEvalCount (CN evaluated _) = if evaluated then 0 else 1
+unEvalCount (CE evaluated _) = if evaluated then 0 else 1
 
 
-isEval (CN evaluated _) = evaluated
-isEval (CE evaluated _) = evaluated
-
-
-evalNodes :: (NodeAttribute nl, EdgeAttribute el) =>
+evalComp :: (Eq nl, Show nl, NodeAttribute nl, EdgeAttribute el) =>
              JGraph nl el -> (CypherComp nl el) -> IO (CypherComp nl el)
-evalNodes graph (CN _    (CypherNode a (Nodes n) r c)) =
-         return (CN True (CypherNode a (Nodes n) r c))
+evalComp graph (CN _  c) = do n <- evalNode graph c
+                              return (CN True n)
 
-evalNodes graph (CN _    (CypherNode a (AllNodes) r c)) = do
-         allNodes <- nodesJ graph
-         return (CN True (CypherNode a (Nodes allNodes) r c))
+evalNode :: (Eq nl, Show nl, NodeAttribute nl, EdgeAttribute el) =>
+             JGraph nl el -> (CypherNode nl el) -> IO (CypherNode nl el)
+evalNode graph (CypherNode a (Nodes n) r c) =
+        return (CypherNode a (Nodes n) r c)
 
-evalNodes graph (CN _    (CypherNode a (Label ls) r c)) = do
-         lNodes <- filter hasOneOfTheLabels <$> nodesJ graph -- TODO make it faster
-         return (CN True (CypherNode a (Nodes lNodes) r c))
-  where hasOneOfTheLabels n = or (map (hasNodeAttr n) ls)
+evalNode graph (CypherNode a (AllNodes) r c) = do
+        return (CypherNode a (Nodes [0..(nodeCount graph)]) r c)
+
+evalNode graph (CypherNode a (Label ls) r c) = do
+        return (CypherNode a (Nodes (Debug.Trace.trace (show lNodes) lNodes)) r c)
+  where lNodes = concat (map f spans)
+        f ((start,end), nl) | elem nl ls = [start..end]
+                            | otherwise  = []
+        rangeList = toList (ranges graph)
+        rangeEnds = map (\x -> x-1) $ (tail (map fst rangeList)) ++ [nodeCount graph]
+        spans = zipWith spanGen rangeList rangeEnds
+        spanGen (r, nl) e = ((r,e), nl)
 
 extractNodes (CN _ (CypherNode a (Nodes ns) r c)) = ns
 
--- allChildEdges :: JGraph nl el -> Node -> IO [EdgeAttr]
--- allChildNodesFromEdges :: JGraph nl el -> (Node, [EdgeAttr]) -> IO [Node]
--- adjacentEdgesByAttr :: (NodeAttribute nl, EdgeAttribute el) =>
---                       JGraph nl el -> Node -> EdgeAttr -> IO [EdgeAttr]
 -- | This function repeatedly computes a column in the final table
 --   until all columns are evaluated. The columns alternate from left to right between sets of
---   nodes or edges (enforced by the EDSL). The algorithm choses the node-column which is fastest
---   to compute. Then it choses the edge column left or right (together with the nodes where it 
---   leads) to pick the faster one of the two choices.
-runOn :: (NodeAttribute nl, EdgeAttribute el) =>
+--   nodes and sets of edges (enforced by the EDSL). The algorithm choses the node-column which is 
+--   fastest to compute. Then it choses the edge column left or right (together with the nodes where 
+--   it leads) to pick the faster one of the two choices.
+runOn :: (Eq nl, Show nl, NodeAttribute nl, EdgeAttribute el) =>
          JGraph nl el -> Map Int (CypherComp nl el) -> IO (Map Int (CypherComp nl el))
 runOn graph comps
-  | all isEval (Map.elems comps) = return comps
+  | unevaluatedNodes == 0 = return comps
+  | unevaluatedNodes == 1 = if unEv (head elems) then return comps -- TODO edges to anynode
+                                                 else return comps -- unEv (last elems)
   | otherwise =
-    do evalCenter <- evalNodes graph (fromJust center)
+    do evalCenter <- evalComp graph (fromJust center)
        adjacentEdges <- mapM getEdges (extractNodes evalCenter)
-       let es = adjacentEdges -- TODO apply WHERE restriction
+       let es = -- Debug.Trace.trace ("ee " ++ show adjacentEdges) $
+                adjacentEdges -- TODO apply WHERE restriction
        newNodes <- concat <$> mapM (allChildNodesFromEdges graph) es
-       let ns = newNodes
-       let restrictedNodes = CN True (CypherNode [] (Nodes ns) Nothing [])
-       let restrictedEdges = CE True (CypherEdge [] (Just (concat (map nodeEdges es))) Nothing Nothing [])
-       let newCenter = Map.insert minIndex evalCenter comps
-       runOn graph (newComponents restrictedEdges restrictedNodes newCenter)
+       let ns = -- Debug.Trace.trace ("nn " ++ show newNodes ++ show es)
+                newNodes -- TODO: If already evaluated at this place,
+                         -- choose smaller list and probably reduce node lists in this direction
+       let centerNodesAdj = map fst (filter (\(_,x) -> not (null x)) es)
+       let adjCenter = CN True (CypherNode [] (Nodes centerNodesAdj) Nothing [])
+       let restrNodes = CN True (CypherNode [] (Nodes ns) Nothing [])
+       let restrEdges = CE True (CypherEdge [] (Just (concat (map nodeEdges es))) Nothing Nothing [])
+       let newCenter = Map.insert minIndex adjCenter comps
+       runOn graph (newComponents restrEdges restrNodes newCenter)
  where
+  unevaluatedNodes = sum (map unEvalCount elems)
+  unEv (CE False e) = True
+  unEv _ = False
+  elems = Map.elems comps
   getEdges :: Node -> IO (Node, [EdgeAttr])
   getEdges n | null (edgeAttrs lOrR) = do ace <- allChildEdges graph n
                                           return (n, ace)
-             | otherwise = (\x -> (n,x)) . concat <$> mapM (adjacentEdgesByAttr graph n) attrs
-    where attrs = genAttrs (edgeAttrs leftEdges)
-          lOrR | useLeft   = leftEdges
-               | otherwise = rightEdges
+             | otherwise = (\x -> (n,x)) . concat <$> mapM (adjacentEdgesByAttr graph n) attrs -- (Debug.Trace.trace ("ac " ++ concat (map showHex32 attrs)) n)) attrs
+    where attrs | useLeft   = genAttrs (edgeAttrs (fromJust leftEdges))
+                | otherwise = genAttrs (edgeAttrs (fromJust rightEdges))
+          lOrR | useLeft   = fromJust leftEdges
+               | otherwise = fromJust rightEdges
 
   nodeEdges :: (Node, [EdgeAttr]) -> [NodeEdge]
   nodeEdges (n,as) = map (buildWord64 n) as
 
   computeComplexity = Map.map compl comps
-  minIndex = minI 0 0 100000 (Map.elems computeComplexity)
+  minIndex = -- Debug.Trace.trace ("elems " ++ show comps ++ (show (Map.elems computeComplexity)))
+                               (minI 0 0 1000000 (Map.elems computeComplexity))
+
+  costLeft  = Map.lookup (minIndex - 2) computeComplexity
+  costRight = Map.lookup (minIndex + 2) computeComplexity
+
+  leftNodes  =          Map.lookup (minIndex - 2) comps
+  leftEdges  = unCE <$> Map.lookup (minIndex - 1) comps
+  center     = -- Debug.Trace.trace ("minIndex " ++ show minIndex) $
+               Map.lookup minIndex comps
+  rightEdges = unCE <$> Map.lookup (minIndex + 1) comps
+  rightNodes =          Map.lookup (minIndex + 2) comps
+
+  unCN (CN _ x) = x
+  unCE (CE _ x) = x
 
   newComponents :: (CypherComp nl el) -> (CypherComp nl el) -> Map Int (CypherComp nl el)
                                                             -> Map Int (CypherComp nl el)
   newComponents es ns newCenter
-      | useLeft   = Map.insert (minIndex-2) (ns)
-                               (Map.insert (minIndex-1) (es) newCenter)
-      | otherwise = Map.insert (minIndex+2) (ns)
-                               (Map.insert (minIndex+1) (es) newCenter)
+    | useLeft && isJust leftNodes = Map.insert (minIndex-2) ns (Map.insert (minIndex-1) es newCenter)
+    | useLeft && isNothing leftNodes =                          Map.insert (minIndex-1) es newCenter
+    | isJust rightNodes =           Map.insert (minIndex+2) ns (Map.insert (minIndex+1) es newCenter)
+    | otherwise =                                               Map.insert (minIndex+1) es newCenter
 
   useLeft | (isJust costLeft && isNothing costRight) ||
             (isJust costLeft && isJust costRight &&
-                (fromC (fromJust costLeft) < fromC (fromJust costRight))) = True
+                (fromC (fromJust costLeft) < fromC (fromJust costRight))) ||
+            (isJust leftEdges && isNothing rightEdges) = True
           | otherwise = False
-  costLeft  = Map.lookup (minIndex - 2) computeComplexity
-  costRight = Map.lookup (minIndex + 2) computeComplexity
-
-  center = Map.lookup minIndex comps
-  leftEdges = unCE (fromJust (Map.lookup (minIndex - 1) comps))
-  leftNodes = Map.lookup (minIndex - 2) comps
-  rightEdges = unCE (fromJust (Map.lookup (minIndex + 1) comps))
-  rightNodes = Map.lookup (minIndex + 2) comps
-
-  unCN (CN _ x) = x
-  unCE (CE _ x) = x
 
 ----------------------------------------------------------------
 -- Creating a graph -- TODO implement
@@ -421,6 +496,8 @@ instance (NodeAttribute nl, EdgeAttribute el) =>
 -- | All nodes, but most likely restricted by which nodes are hit by inbounding edges
 anyNode :: (NodeAttribute nl, EdgeAttribute el) => CypherNode nl el
 anyNode  = CypherNode [] AllNodes Nothing []
+
+labels ls = CypherNode [] (Label ls) Nothing []
 
 -- | Explicitly say which nodes to use, also restricted by inbounding edges
 nodes ns = CypherNode [] (Nodes ns) Nothing []
