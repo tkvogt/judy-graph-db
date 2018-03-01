@@ -46,10 +46,9 @@ module JudyGraph (JGraph(..), Judy(..), Node(..), Edge(..),
                   -- * Query Evaluation
                   Table(..), GraphCreateReadUpdate(..),
                   -- * Setting of Attributes, Labels,...
-                  SetAttr(..), AddLabel(..), Several(..), SetWHERE(..), AttrType(..), Attr(..),
-                  LabelNodes(..),
+                  Attr(..), LabelNodes(..),
                   -- * Unevaluated node/edge markers
-                  anyNode, nodes, edge
+                  anyNode, nodes32, edge, node, attr, labels, where_, several, (…),
                  ) where
 
 import           Control.Monad(foldM, when)

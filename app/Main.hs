@@ -1,6 +1,6 @@
 module Main where
 
-import           Data.Bits((.&.), shift)
+import           Data.Bits(shift)
 import qualified Data.Judy as J
 import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Word(Word8, Word16, Word32)
@@ -13,13 +13,20 @@ import JudyGraph.FastAccess
 main :: IO ()
 main = do
   jgraph <- J.fromList False nodes dirEdges [] ranges
+
+  insertNodeLines jgraph "/home/till/Dokumente/Optimind/be/judy-graph-db/benchmark/data.txt" Raises
+
+  -- Which of the issues that simon has raised reference other issues?
   query <- table jgraph (simon --| raises |-- issue --| references |-- issue)
   putStrLn ("query result: " ++ show query)
  where
-  simon = Cy.nodes [0] :: CyN
-  raises = addAttr Attr Raises Cy.edge :: CyE
-  issue = Cy.labels [ISSUE] :: CyN
-  references = addAttr Attr References Cy.edge :: CyE
+  simon  = node (nodes32 [0]) :: CyN
+  raises = edge (attr Raises) :: CyE -- (attr Closes) :: CyE
+  issue  = node (labels [ISSUE]) :: CyN
+
+  -- on my keyboard … is <alt Gr> + <.>
+  references = edge (attr References) (where_ restrict) (1…3) :: CyE
+  restrict w32 edgeMap = True
 
   nodes :: [(J.Node, NodeLabel)]
   nodes = [(0, PROGRAMMER), (1, PROGRAMMER),
@@ -38,7 +45,7 @@ main = do
               ((4,3), [References]), -- ISSUE References ISSUE
               ((5,4), [Closes]),     -- PULL_REQUEST Closes ISSUE
               ((0,3), [Closes]),     -- PROGRAMMER Closes ISSUE
-              ((1,5), [Accepts]),    -- PROGRAMMER Accepts PULL_REQUEST
+              ((1,7), [Accepts]),    -- PROGRAMMER Accepts PULL_REQUEST
               ((0,2), [BelongtsTO])] -- PROGRAMMER BelongtsTO ORGANISATION
 
 --------------------------------------------------------------------------------------------------
@@ -46,13 +53,13 @@ main = do
 type CyN = CypherNode NodeLabel EdgeLabel
 type CyE = CypherEdge NodeLabel EdgeLabel
 
-data NodeLabel = PROGRAMMER | ORGANISATION | ISSUE | PULL_REQUEST deriving (Eq, Show)
+data NodeLabel = PROGRAMMER | ORGANISATION | ISSUE | PULL_REQUEST deriving (Eq, Show, Enum)
 
 -- | Can be complex (like a record). Figure out which attributes are important for filtering edges
 data EdgeLabel = Raises | Accepts | Closes | References | BelongtsTO | EdgeForward deriving Show
 
 instance NodeAttribute NodeLabel where
-    fastNodeAttr _ = (8, 0) -- we don't use node attrs
+    fastNodeAttr _ = (0, 0) -- we don't use node attrs
 
 instance EdgeAttribute EdgeLabel where
     -- What a programmer can do
