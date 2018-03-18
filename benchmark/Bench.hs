@@ -22,7 +22,7 @@ import GHC.Generics (Generic)
 import qualified JudyGraph as J
 import qualified JudyGraph.Cypher as Cy
 import JudyGraph
-import JudyGraph.FastAccess(insertNodeLines, empty, NodeAttribute(..), EdgeAttribute(..))
+import JudyGraph.Enum(insertNodeLines, emptyE, NodeAttribute(..), EdgeAttribute(..))
 import Paths_judy_graph_db (getDataFileName)
 
 -- Our benchmark harness.
@@ -39,7 +39,7 @@ main = defaultMain [
 
 cw = do f <- getDataFileName "benchmark/data.txt"
         putStrLn ("getDataFileName " ++ f)
-        jgraph <- empty ranges
+        jgraph <- emptyE ranges
         insertNodeLines jgraph f MAILED
         query <- table jgraph (number128 --| mailed |-- anybody)
         putStrLn ("query result: " ++ show query)
@@ -51,7 +51,7 @@ cw = do f <- getDataFileName "benchmark/data.txt"
 
 
 miw = do f <- getDataFileName "benchmark/data.txt"
-         jgraph <- empty ranges
+         jgraph <- emptyE ranges
          insertNodeLines jgraph f MAILED
          putStrLn ("insertNodeLines")
   where

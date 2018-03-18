@@ -8,20 +8,20 @@ import qualified Data.Text as T
 import           Data.Word(Word32)
 import           Test.Hspec
 
-import qualified JudyGraph.FastAccess as Graph
-import           JudyGraph.FastAccess
+import qualified JudyGraph.Enum as Graph
+import           JudyGraph.Enum
 import qualified JudyGraph as Graph
 import           JudyGraph
 import Debug.Trace
 
 
-data EdgeLabel = E Word32  -- can be complex (like a record)
-                           -- figure out which attributes are important
-                           -- for filtering edges
+data EdgeLabel = E Word32 deriving Show -- can be complex (like a record)
+                                        -- figure out which attributes are important
+                                        -- for filtering edges
 
 data NodeLabel = TN TypeNode -- can be complex (like several records)
                | FN FunctionNode
-               | AN AppNode
+               | AN AppNode deriving Show
 
 type TypeNode = Word32
 type FunctionNode = Word32
@@ -35,6 +35,9 @@ instance NodeAttribute NodeLabel where
 
 instance EdgeAttribute EdgeLabel where
     fastEdgeAttr el = (8,0) -- (Bits, Word32))
+    fastEdgeAttrBase el = 0
+    edgeForward = Nothing
+    addCsvLine _ graph _ = return graph
 
 main :: IO ()
 main = do
@@ -42,38 +45,35 @@ main = do
   mj <- J.new :: IO Judy
 
   -- graph with judy and data.map structures
-  jgraph0 <- Graph.fromList nodes edges ranges
+  jgraph0 <- Graph.fromListE False nodes dirEdges [] ranges
   childEdgesN0 <- allChildEdges jgraph0 n0
   childNodesN0 <- allChildNodes jgraph0 n0
-  childNodesFromEdgesN0 <- allChildNodesFromEdges jgraph0 childEdgesN0 n0
+  childNodesFromEdgesN0 <- allChildNodesFromEdges jgraph0 n0 childEdgesN0
   adjacentCount <- adjacentEdgeCount jgraph0 n0
 
   -- graph with only judy
-  jgraph1 <- Graph.fromListJudy nodeEdges ranges
+  jgraph1 <- Graph.fromListE False nodes dirEdges [] ranges
   childEdgesJudyN0 <- allChildEdges jgraph1 n0
   childNodesJudyN0 <- allChildNodes jgraph1 n0
-  childNodesFromEdgesJudyN0 <- allChildNodesFromEdges jgraph1 childEdgesJudyN0 n0
+  childNodesFromEdgesJudyN0 <- allChildNodesFromEdges jgraph1 n0 childEdgesJudyN0
   adjacentCountJudy <- adjacentEdgeCount jgraph1 n0
 
   -- insert
-  jgraph2 <- empty ranges
-  jgraph3 <- insertNode jgraph2 (n0, FN 1)
-  jgraph3 <- insertNodes jgraph2 [(n1, FN 1), (n2, FN 1)]
-  jgraph4 <- insertEdge jgraph3 ((n1,n2), [E 1])
-  jgraph5 <- deleteEdge jgraph4 (n1,n2)
-  jgraph6 <- insertEdges jgraph5 [ ((n1,n2), [E 1]) ]
-  jgraph7 <- deleteNode jgraph6 n1
-  jgraph8 <- insertNodeEdgeList jgraph7 nodeEdges
+  jgraph2 <- empty ranges :: IO (EnumGraph NodeLabel EdgeLabel)
+  jgraph3 <- insertNodeEdge False jgraph2 ((n1,n2), Nothing, Nothing, E 1)
+  jgraph4 <- deleteEdge jgraph3 (n1,n2)
+  jgraph5 <- insertNodeEdges False jgraph4 [ ((n1,n2), Nothing, Nothing, [E 1]) ]
+  jgraph6 <- deleteNode jgraph5 n1
 
 -- union of empty graphs
-  ugraph0 <- empty ranges
-  ugraph1 <- empty ranges
+  ugraph0 <- empty ranges :: IO (EnumGraph NodeLabel EdgeLabel)
+  ugraph1 <- empty ranges :: IO (EnumGraph NodeLabel EdgeLabel)
   ugraph2 <- ugraph0 `union` ugraph1
   emptyUnion <- isNull ugraph2
 
 -- union of non-empty graphs
-  ograph0 <- Graph.fromList nodes edges ranges
-  ograph1 <- Graph.fromList nodesOverlap edges ranges
+  ograph0 <- Graph.fromListE False nodes dirEdges [] ranges
+  ograph1 <- Graph.fromListE False nodesOverlap dirEdges [] ranges
   ograph2 <- ugraph0 `union` ugraph1
   overlapUnion <- isNull ograph2
 
@@ -149,8 +149,8 @@ main = do
   nodesOverlap :: [(Graph.Node, NodeLabel)]
   nodesOverlap = [(n1, FN 3), (n2, AN 4)]
 
-  edges :: [(Graph.Edge, [EdgeLabel])]
-  edges = [((n0,n1), [E 1])]
+  dirEdges :: [(Graph.Edge, [EdgeLabel])]
+  dirEdges = [((n0,n1), [E 1])]
 
   nodeEdges :: [(Edge, Maybe NodeLabel, Maybe NodeLabel, [EdgeLabel])]
   nodeEdges = [((n0,n1), Just (TN 1), Just (FN 7), [E 1])]

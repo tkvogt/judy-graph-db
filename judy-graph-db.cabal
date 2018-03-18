@@ -14,13 +14,11 @@ data-files:  benchmark/*.txt
 
 library
   hs-source-dirs:      src
-  exposed-modules:     JudyGraph, JudyGraph.FastAccess, JudyGraph.Cypher
+  exposed-modules:     JudyGraph, JudyGraph.FastAccess, JudyGraph.Enum, JudyGraph.Cypher
   other-modules:       Paths_judy_graph_db
   build-depends:       base >= 4.7 && < 5
                      , bytestring
                      , cassava
-                     , conduit >= 1.2.8
-                     , conduit-combinators
                      , containers
                      , deepseq
                      , judy
@@ -44,12 +42,42 @@ executable judy-graph-exe
                      , judy
                      , judy-graph-db
                      , semigroups
+                     , text
   default-language:    Haskell2010
 
 test-suite judy-graph-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
+  build-depends:       base
+                     , containers
+                     , hspec
+                     , judy
+                     , judy-graph-db
+                     , semigroups
+                     , text
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+
+test-suite Example
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test/examples
+  main-is:             Example.hs
+  build-depends:       base
+                     , containers
+                     , hspec
+                     , judy
+                     , judy-graph-db
+                     , semigroups
+                     , text
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+test-suite SortNodes
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test/examples
+  main-is:             SortNodes.hs
   build-depends:       base
                      , containers
                      , hspec

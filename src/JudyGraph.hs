@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveGeneric, OverloadedStrings, UnicodeSyntax #-}
+{-# LANGUAGE DeriveGeneric, OverloadedStrings, UnicodeSyntax, MultiParamTypeClasses,
+    FlexibleInstances, InstanceSigs, ScopedTypeVariables #-}
 {-|
 Module      :  JudyGraph
 Description :  A fast and memory efficient graph library for dense graphs
-Copyright   :  (C) 2017 Tillmann Vogt
+Copyright   :  (C) 2017-2018 Tillmann Vogt
 
 License     :  BSD-style (see the file LICENSE)
 Maintainer  :  Tillmann Vogt <tillk.vogt@gmail.com>
@@ -29,27 +30,32 @@ module.
 
 -}
 module JudyGraph (JGraph(..), Judy(..), Node(..), Edge(..),
-                  -- * Construction
-                  fromList, insertNode, insertNodes, insertEdge, insertEdges, union,
-                  -- * Deletion
-                  deleteNode, deleteNodes, deleteEdge,
-                  -- * Query
-                  isNull, lookupNode, lookupEdge,
-                  -- * Changing node labels
-                  mapNode, mapNodeWithKey,
-                  -- * Cypher Query
-                  QueryN(..), QueryNE(..),
-                  -- * Cypher Query with Unicode
-                  (─┤),  (├─),  (<─┤),  (├─>),  (⟞⟝), (⟼),  (⟻),
-                  -- * Query Components
-                  CypherNode(..), CypherEdge(..),
-                  -- * Query Evaluation
-                  Table(..), GraphCreateReadUpdate(..),
-                  -- * Setting of Attributes, Labels,...
-                  Attr(..), LabelNodes(..),
-                  -- * Unevaluated node/edge markers
-                  anyNode, nodes32, edge, node, attr, labels, where_, several, (…),
-                 ) where
+      -- * Construction
+      emptyJ, emptyE, fromList, fromListJ, fromListE,
+      insertNode, insertNodes, insertNodeLines, insertNodeEdge, insertNodeEdges, union,
+      -- * Deletion
+      deleteNode, deleteNodes, deleteEdge,
+      -- * Query
+      isNull, lookupNode, lookupEdge,
+      -- * Changing node labels
+      mapNodeJ, mapNodeWithKeyJ,
+      -- * Cypher Query
+      QueryN(..), QueryNE(..),
+      -- * Cypher Query with Unicode
+      (─┤),  (├─),  (<─┤),  (├─>),  (⟞⟝), (⟼),  (⟻),
+      -- * Query Components
+      CypherComp(..), CypherNode(..), CypherEdge(..),
+      -- * Query Evaluation
+      Table(..), GraphCreateReadUpdate(..),
+      -- * Setting of Attributes, Labels,...
+      Attr(..), LabelNodes(..), 
+      -- * type classes for translation into bits
+      NodeAttribute(..), EdgeAttribute(..),
+      -- * Unevaluated node/edge markers
+      anyNode, nodes32, edge, node, attr, labels, where_, several, (…),
+      -- * evaluating, changing markers
+      evalNode, appl
+     ) where
 
 import           Control.Monad(foldM, when)
 import qualified Data.Judy as J
@@ -60,27 +66,31 @@ import           Data.Maybe(isJust, maybe, fromMaybe)
 import qualified Data.Text as T
 import           Data.Text(Text)
 import           Data.Word(Word8, Word16, Word32)
-import JudyGraph.FastAccess(JGraph(..), Judy(..), NodeAttribute, EdgeAttribute, Node, Edge,
-                  RangeStart, empty, fromListJudy, nullJ, buildWord64,
-                  nodeWithLabel, nodeWithMaybeLabel, insertNodeEdges, updateNodeEdges,
-                  deleteNodeJ, deleteEdgeJ,
-                  unionJ, mapNodeJ, mapNodeWithKeyJ,
-                  allChildEdges, allChildNodesFromEdges)
+import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..),
+                  NodeAttribute(..), EdgeAttribute(..), EdgeAttr32, Node, Edge,
+                  RangeStart, emptyJ, emptyE, fromList, fromListJ, fromListE, isNull,
+                  buildWord64, nodeWithLabel, nodeWithMaybeLabel, updateNodeEdges,
+                  insertNodeEdges, insertNodeLines,
+                  deleteNode, deleteEdge,
+                  union, mapNodeJ, mapNodeWithKeyJ,
+                  allChildEdges, allChildNodesFromEdges, lookupJudyNodes)
 import JudyGraph.Cypher
 import Debug.Trace
 
---------------------------------------------------------------------------------------------
--- Generation / Insertion
 
--- | If you don't need complex node/edge labels use 'fromListJudy'
-fromList :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
-            Bool -> [(Node, nl)] -> [(Edge, [el])] -> [(Edge, [el])] ->
-            NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
-fromList overwrite nodes directedEdges edges ranges = do
-    jgraph <- empty ranges
-    ngraph <- insertNodes jgraph nodes
-    insertEdges overwrite ngraph (directedEdges ++ edges ++ (map rev edges))
-  where rev ((from,to), labels) = ((to,from), labels)
+-- | If the graph contains data that doesn't fit into 32 bit node/edges and there is enough memory
+data (NodeAttribute nl, EdgeAttribute el) =>
+     ComplexGraph nl el = ComplexGraph {
+  judyGraphC :: Judy, -- ^ A Graph with 32 bit keys on the edge
+  enumGraphC :: Judy, -- ^ Enumerate the edges of the first graph, with counter at position 0.
+                     --   Deletions in the first graph are not updated here (too costly)
+  complexNodeLabelMap :: Maybe (Map Word32 nl), -- ^ A node attr that doesn't fit into 64bit
+  complexEdgeLabelMap :: Maybe (Map (Node,Node) [el]),
+  -- ^ An edge attr that doesn't fit into 64bit
+  rangesC :: NonEmpty (RangeStart, nl), -- ^ a nonempty list with an attribute for every range
+  nodeCountC :: Word32
+}
+
 
 -- | Inserting a new node means either
 --
@@ -88,62 +98,88 @@ fromList overwrite nodes directedEdges edges ranges = do
 --
 --  * if it already exists then the label of the existing node is changed.
 --    This can be slow because all node-edges have to be updated (O(#adjacentEdges))
-insertNode :: NodeAttribute nl => JGraph nl el -> (Node, nl) -> IO (JGraph nl el)
-insertNode jgraph (node, nl) = do
-    let newNodeAttr = maybe Map.empty (Map.insert node nl) (complexNodeLabelMap jgraph)
+insertNode :: (NodeAttribute nl, EdgeAttribute el) =>
+              ComplexGraph nl el -> (Node, nl) -> IO (ComplexGraph nl el)
+insertNode (ComplexGraph j eg nm em r n) (node, nl) = do
+  let newNodeAttr = maybe Map.empty (Map.insert node nl) nm
 
-    -- the first index lookup is the count
-    let enumNodeEdge = buildWord64 (nodeWithLabel node nl) 0
-    numEdges <- J.lookup enumNodeEdge (enumGraph jgraph)
-    when (isJust numEdges) $
-        do es <- allChildEdges jgraph node
-           ns <- allChildNodesFromEdges jgraph (node,es)
-           mapM_ (updateNodeEdges jgraph node nl) (zip es ns)
-    return (jgraph { complexNodeLabelMap = Just newNodeAttr })
+  -- the first index lookup is the count
+  let enumNodeEdge = buildWord64 (nodeWithLabel node nl) 0
+  numEdges <- J.lookup enumNodeEdge eg
+  when (isJust numEdges) $
+    do --es <- allChildEdges (EnumGraph j eg r n) node
+            -- :: (NodeAttribute nl, EdgeAttribute el) => IO [EdgeAttr32]
+--       ns <- allChildNodesFromEdges (EnumGraph j eg r n :: (NodeAttribute nl, EdgeAttribute el) => EnumGraph nl el) node es
+       mapM_ (updateNodeEdges (JGraph j r n) node nl) [] -- (zip es ns)
+  return (ComplexGraph j eg (Just newNodeAttr) em r n)
+-- where
+--  ace = allChildEdges (EnumGraph j eg r n) node
 
 -- | Insert several nodes using 'insertNode'
-insertNodes :: NodeAttribute nl => JGraph nl el -> [(Node, nl)] -> IO (JGraph nl el)
+insertNodes :: (NodeAttribute nl, EdgeAttribute el) =>
+               ComplexGraph nl el -> [(Node, nl)] -> IO (ComplexGraph nl el)
 insertNodes jgraph nodes = foldM insertNode jgraph nodes
 
 
-insertEdge :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
-              Bool -> JGraph nl el -> (Edge, [el]) -> IO (JGraph nl el)
-insertEdge overwrite jgraph ((n0,n1), edgeLabels) = do
-    insertNodeEdges False overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels)
+instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
+         GraphClass ComplexGraph nl el where
+
+  empty ranges = do
+    j <- J.new :: IO Judy
+    e <- J.new :: IO Judy
+    let nl = Map.empty :: Map Word32 nl
+    let el = Map.empty :: Map (Node,Node) [el]
+    return (ComplexGraph j e (Just nl) (Just el) ranges 0)
+
+
+  -- | Are the judy arrays and nodeLabelMap and edgeLabelMap empty
+  isNull :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
+            ComplexGraph nl el -> IO Bool
+  isNull (ComplexGraph graph enumGraph nodeLabelMap edgeLabelMap rs n) = do
+    isN <- isNull (EnumGraph graph enumGraph rs n :: (NodeAttribute nl, EdgeAttribute el) => EnumGraph nl el)
+    return (isN && (maybe True Map.null nodeLabelMap)
+                && (maybe True Map.null edgeLabelMap))
+
+
+  -- | If you don't need complex node/edge labels use 'fromListJudy'
+  fromList overwrite nodes directedEdges edges ranges = do
+      jgraph <- empty ranges
+      ngraph <- insertNodes jgraph nodes
+      insertNodeEdges overwrite ngraph (directedEdges ++ edges ++ (map rev edges))
+    where rev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels)
+
+
+  insertNodeEdge overwrite jgraph ((n0,n1), _, _, edgeLabels) = do
+    insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels)
     return (jgraph { complexEdgeLabelMap = Just newEdgeLabelMap })
-  where
+   where
     nl0 = maybe Nothing (Map.lookup n0) (complexNodeLabelMap jgraph)
     nl1 = maybe Nothing (Map.lookup n1) (complexNodeLabelMap jgraph)
 
     -- Using the secondary map for more detailed data
     oldLabel = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelMap jgraph)
     newEdgeLabelMap = Map.insert (n0,n1)
-                        ((fromMaybe [] oldLabel) ++ edgeLabels) -- multi edges between the same nodes
+                        ((fromMaybe [] oldLabel) ++ [edgeLabels]) -- multi edges between the same nodes
                         (fromMaybe Map.empty (complexEdgeLabelMap jgraph))
 
+  --------------------------------------------------------------------------------------
 
--- | Insert several edges using 'insertEdge'
-insertEdges :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
-                 Bool -> JGraph nl el -> [(Edge, [el])] -> IO (JGraph nl el)
-insertEdges overwrite jgraph edges = foldM (insertEdge overwrite) jgraph edges
+  -- | Make a union of two graphs by making a union of 'complexNodeLabelMap' and 
+  --   'complexEdgeLabelMap' but also calls 'unionJ' for a union of two judy arrays
+  union :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
+           ComplexGraph nl el -> ComplexGraph nl el -> IO (ComplexGraph nl el)
+  union (ComplexGraph j0 enumJ0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0 n0)
+        (ComplexGraph j1 enumJ1 complexNodeLabelMap1 complexEdgeLabelMap1 ranges1 n1) = do
 
---------------------------------------------------------------------------------------
+    (EnumGraph newJGraph newJEnum nm em :: EnumGraph nl el)
+        <- union (EnumGraph j0 enumJ0 ranges0 n0) (EnumGraph j1 enumJ1 ranges1 n1)
 
--- | Make a union of two graphs by making a union of 'complexNodeLabelMap' and 
---   'complexEdgeLabelMap' but also calls 'unionJ' for a union of two judy arrays
-union :: JGraph nl el -> JGraph nl el -> IO (JGraph nl el)
-union (JGraph j0 enumJ0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0 n0)
-      (JGraph j1 enumJ1 complexNodeLabelMap1 complexEdgeLabelMap1 ranges1 n1) = do
-
-    (newJudyGraph, newJudyEnum) <- unionJ (j0, enumJ0) (j1, enumJ1)
-
-    return (JGraph newJudyGraph newJudyEnum
+    return (ComplexGraph newJGraph newJEnum
             (mapUnion complexNodeLabelMap0 complexNodeLabelMap1)
             (mapUnion complexEdgeLabelMap0 complexEdgeLabelMap1)
             ranges0 -- assuming ranges are global
             (n0+n1))
-  where
-
+   where
     mapUnion (Just complexLabelMap0)
              (Just complexLabelMap1) = Just (Map.union complexLabelMap0 complexLabelMap1)
     mapUnion Nothing (Just complexLabelMap1) = Just complexLabelMap1
@@ -151,64 +187,55 @@ union (JGraph j0 enumJ0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0 n0)
     mapUnion Nothing Nothing = Nothing
 
 
----------------------------------------------------------------------------------------
--- Deletion
--- Caution: Should currently be used much less than insert.
---          It can make the lookup slower because of lookup failures
+  ---------------------------------------------------------------------------------------
+  -- Deletion
+  -- Caution: Should currently be used much less than insert.
+  --          It can make the lookup slower because of lookup failures
 
--- | This will currently produce holes in the continuously enumerated edge list of enumGraph.
---   But garbage collecting this is maybe worse.
-deleteNode :: (NodeAttribute nl, EdgeAttribute el) =>
-              JGraph nl el -> Node -> IO (JGraph nl el)
-deleteNode jgraph node = do
+  -- | This will currently produce holes in the continuously enumerated edge list of enumGraph.
+  --   But garbage collecting this is maybe worse.
+  deleteNode jgraph node = do
     let newNodeMap = fmap (Map.delete node) (complexNodeLabelMap jgraph)
-    deleteNodeJ jgraph node
+    deleteNode jgraph node
     return (jgraph{ complexNodeLabelMap = newNodeMap })
-  where
+   where
     nl = nodeWithMaybeLabel node (maybe Nothing (Map.lookup node) lmap)
-    mj = judyGraph jgraph
+    mj = judyGraphC jgraph
     lmap = complexNodeLabelMap jgraph
 
 
--- | This will currently produce holes in the continuously enumerated edge list of enumGraph.
---   But garbage collecting this is maybe worse.
-deleteNodes :: (NodeAttribute nl, EdgeAttribute el) =>
-               JGraph nl el -> [Node] -> IO (JGraph nl el)
-deleteNodes jgraph nodes = do
+  -- | This will currently produce holes in the continuously enumerated edge list of enumGraph.
+  --   But garbage collecting this is maybe worse.
+  deleteNodes jgraph nodes = do
     newNodeMap <- foldM deleteNode jgraph nodes
     return (jgraph{ complexNodeLabelMap = complexNodeLabelMap newNodeMap })
 
 
--- | This will currently produce holes in the continuously enumerated edge list of enumGraph
---   But garbage collecting this is maybe worse.
-deleteEdge :: (NodeAttribute nl, EdgeAttribute el) =>
-              JGraph nl el -> Edge -> IO (JGraph nl el)
-deleteEdge jgraph (n0,n1) = do
-    deleteEdgeJ jgraph n0 n1
-    let newEdgeMap = fmap (Map.delete (n0,n1)) (complexEdgeLabelMap jgraph)
-    return (jgraph { complexEdgeLabelMap = newEdgeMap })
+  -- | This will currently produce holes in the continuously enumerated edge list of enumGraph
+  --   But garbage collecting this is maybe worse.
+  deleteEdge :: (NodeAttribute nl, EdgeAttribute el) =>
+                (ComplexGraph nl el) -> Edge -> IO (ComplexGraph nl el)
+  deleteEdge (ComplexGraph j e nm em r n) (n0,n1) = do
+--    deleteEdge (JGraph j r n) (n0, n1)
+    let newEdgeMap = fmap (Map.delete (n0,n1)) (complexEdgeLabelMap (ComplexGraph j e nm em r n))
+    return (ComplexGraph j e nm newEdgeMap r n)
 
 
---------------------------------------------------------------------------------------------
--- Query
-
--- | Are the judy arrays and nodeLabelMap and edgeLabelMap empty
-isNull :: JGraph nl el -> IO Bool
-isNull (JGraph graph enumGraph nodeLabelMap edgeLabelMap rs n) = do
-  isNull <- nullJ (JGraph graph enumGraph nodeLabelMap edgeLabelMap rs n)
-  return (isNull && (maybe True Map.null nodeLabelMap)
-                 && (maybe True Map.null edgeLabelMap))
+  adjacentEdgesByAttr jgraph node attr = do
+    n <- J.lookup key j
+    map fst <$> maybe (return []) (lookupJudyNodes j node attr 1) n
+   where
+    key = buildWord64 node attr
+    j = judyGraphC jgraph
 
 
--- | This function only works on 'complexNodeLabelMap'
-lookupNode :: JGraph nl el -> Word32 -> Maybe nl
-lookupNode graph n = maybe Nothing (Map.lookup n) (complexNodeLabelMap graph)
-
-
--- | This function only works on 'complexEdgeLabelMap'
-lookupEdge :: JGraph nl el -> Edge -> Maybe [el]
-lookupEdge graph (n0,n1) = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelMap graph)
-
+  filterEdgesTo jgraph nodeEdges f = do
+    values <- mapM (\n -> J.lookup n j) nodeEdges
+    return (map fst (filter filterNode (zip nodeEdges values)))
+   where j = judyGraphC jgraph
+         filterNode (ne, Just v) | f v = True
+                                 | otherwise = False
+         filterNode _ = False
 
 ---------------------------------------------------------------------------------------
 -- Changing node labels
@@ -216,7 +243,8 @@ lookupEdge graph (n0,n1) = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelM
 -- | This function only works on the secondary data.map structure
 -- You have to figure out a function (Word32 -> Word32) that is equivalent to (nl -> nl)
 -- and call mapNodeJ (so that everything stays consistent)
-mapNode :: (nl -> nl) -> JGraph nl el -> IO (JGraph nl el)
+mapNode :: (NodeAttribute nl, EdgeAttribute el) =>
+           (nl -> nl) -> ComplexGraph nl el -> IO (ComplexGraph nl el)
 mapNode f jgraph = do
   let newMap = fmap (Map.map f) (complexNodeLabelMap jgraph)
   return (jgraph {complexNodeLabelMap = newMap})
@@ -224,8 +252,23 @@ mapNode f jgraph = do
 -- | This function only works on the secondary data.map structure
 -- You have to figure out a function (Node- > Word32 -> Word32) that is equivalent 
 -- to (Node -> nl -> nl) and call mapNodeWithKeyJ (so that everything stays consistent)
-mapNodeWithKey :: (Node -> nl -> nl) -> JGraph nl el -> IO (JGraph nl el)
+mapNodeWithKey :: (NodeAttribute nl, EdgeAttribute el) =>
+                  (Node -> nl -> nl) -> (ComplexGraph nl el) -> IO (ComplexGraph nl el)
 mapNodeWithKey f jgraph = do
   let newMap = fmap (Map.mapWithKey f) (complexNodeLabelMap jgraph)
   return (jgraph {complexNodeLabelMap = newMap})
+
+--------------------------------------------------------------------------------------------
+-- Query
+
+-- | This function only works on 'complexNodeLabelMap'
+lookupNode :: (NodeAttribute nl, EdgeAttribute el) =>
+              ComplexGraph nl el -> Word32 -> Maybe nl
+lookupNode graph n = maybe Nothing (Map.lookup n) (complexNodeLabelMap graph)
+
+
+-- | This function only works on 'complexEdgeLabelMap'
+lookupEdge :: (NodeAttribute nl, EdgeAttribute el) =>
+              ComplexGraph nl el -> Edge -> Maybe [el]
+lookupEdge graph (n0,n1) = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelMap graph)
 
