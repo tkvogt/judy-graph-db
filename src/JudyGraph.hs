@@ -136,7 +136,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
   isNull :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
             ComplexGraph nl el -> IO Bool
   isNull (ComplexGraph graph enumGraph nodeLabelMap edgeLabelMap rs n) = do
-    isN <- isNull (EnumGraph graph enumGraph rs n :: (NodeAttribute nl, EdgeAttribute el) => EnumGraph nl el)
+    isN <- isNull (EnumGraph graph enumGraph rs n ::
+                       (NodeAttribute nl, EdgeAttribute el) => EnumGraph nl el)
     return (isN && (maybe True Map.null nodeLabelMap)
                 && (maybe True Map.null edgeLabelMap))
 
@@ -159,8 +160,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
     -- Using the secondary map for more detailed data
     oldLabel = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelMap jgraph)
     newEdgeLabelMap = Map.insert (n0,n1)
-                        ((fromMaybe [] oldLabel) ++ [edgeLabels]) -- multi edges between the same nodes
-                        (fromMaybe Map.empty (complexEdgeLabelMap jgraph))
+             ((fromMaybe [] oldLabel) ++ [edgeLabels]) -- multi edges between the same nodes
+             (fromMaybe Map.empty (complexEdgeLabelMap jgraph))
 
   --------------------------------------------------------------------------------------
 

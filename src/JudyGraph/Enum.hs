@@ -33,28 +33,16 @@ module JudyGraph.Enum (
     showHex, showHex32
   ) where
 
-import           Control.DeepSeq
-import           Control.Monad.Error.Class
 import           Control.Monad
-import qualified Data.ByteString.Streaming as B
 import qualified Data.ByteString.Char8 as C
 import qualified Data.Char8 as C
 import qualified Data.Judy as J
-import qualified Data.List.NonEmpty as NonEmpty
 import           Data.List.NonEmpty(NonEmpty(..))
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict(Map)
 import           Data.Maybe(fromJust, isJust, isNothing, maybe, catMaybes, fromMaybe)
-import qualified Data.Text as T
-import qualified Data.Text.Lazy.IO as Text
-import qualified Data.Text.Lazy as Text
 import           Data.Text(Text)
-import           Data.Word(Word8, Word16, Word32)
-import           Streaming (Of, Stream)
-import           Streaming.Cassava as S
-import qualified Streaming.Prelude as S
-import qualified Streaming.With as S
-import           System.IO.Unsafe(unsafePerformIO)
+import           Data.Word(Word32)
 import           JudyGraph.FastAccess
 import Debug.Trace
 

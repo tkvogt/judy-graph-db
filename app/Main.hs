@@ -14,7 +14,7 @@ main = do
   jgraph <- J.fromListE False nodes dirEdges [] ranges
 
   -- Which of the issues that simon has raised reference other issues?
-  query <- table jgraph (simon --| raises |-- issue --| references |-- issue)
+  query <- temp jgraph (simon --| raises |-- issue --| references |-- issue)
   putStrLn ("query result: " ++ show query)
  where
   simon  = node (nodes32 [0]) :: CyN
@@ -39,7 +39,9 @@ main = do
               ((0,4), [Raises]),     -- PROGRAMMER Raises ISSUE
               ((0,5), [Raises]),     -- PROGRAMMER Raises ISSUE
               ((0,6), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((3,5), [References]), -- ISSUE References ISSUE
               ((4,3), [References]), -- ISSUE References ISSUE
+              ((4,6), [References]), -- ISSUE References ISSUE
               ((5,4), [Closes]),     -- PULL_REQUEST Closes ISSUE
               ((0,3), [Closes]),     -- PROGRAMMER Closes ISSUE
               ((1,7), [Accepts]),    -- PROGRAMMER Accepts PULL_REQUEST

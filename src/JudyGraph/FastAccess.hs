@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, FlexibleContexts, DeriveGeneric, DeriveAnyClass, Strict, 
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, DeriveAnyClass, Strict, 
     StrictData, MultiParamTypeClasses, FlexibleInstances, InstanceSigs #-}
 {-|
 Module      :  JudyGraph.FastAccess
@@ -80,15 +80,12 @@ module JudyGraph.FastAccess (
     showHex, showHex32
   ) where
 
-import           Control.DeepSeq
-import           Control.Monad.Error.Class
 import           Control.Monad
 import           Data.Bits((.&.), (.|.))
 import qualified Data.ByteString.Streaming as B
 import qualified Data.ByteString.Char8 as C
 import           Data.Char (intToDigit)
 import qualified Data.Char8 as C
-import           Data.Csv((.!))
 import qualified Data.Judy as J
 import qualified Data.List.NonEmpty as NonEmpty
 import           Data.List.NonEmpty(NonEmpty(..))
@@ -99,11 +96,10 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy.IO as Text
 import qualified Data.Text.Lazy as Text
 import           Data.Text(Text)
-import           Data.Word(Word8, Word16, Word32)
+import           Data.Word(Word32)
 import           Foreign.Marshal.Alloc(allocaBytes)
 import           Foreign.Ptr(castPtr, plusPtr)
 import           Foreign.Storable(peek, pokeByteOff)
-import           GHC.Generics(Generic)
 import           Streaming (Of, Stream, hoist)
 import           Streaming.Cassava as S
 import qualified Streaming.Prelude as S
@@ -529,7 +525,8 @@ adjacentNodesByAttr jgraph node el = do
 lookupJudyNodes :: Judy -> Node -> EdgeAttr32 -> Index -> End -> IO [(EdgeAttr32, Node)]
 lookupJudyNodes j node attr i n = do
     val <- J.lookup key j
-    next <- if i <= n -- (Debug.Trace.trace ("lookupJ " ++ showHex32 node ++" "++ showHex32 (attr+i) ++" "++ show val) n)
+    next <- if i <= n
+-- (Debug.Trace.trace ("lookupJ " ++ showHex32 node ++" "++ showHex32 (attr+i) ++" "++ show val) n)
                  then lookupJudyNodes j node attr (i+1) n
                  else return []
     return (if isJust val then (attr + i, fromJust val) : next
