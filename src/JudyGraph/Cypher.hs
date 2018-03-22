@@ -31,8 +31,10 @@ module JudyGraph.Cypher(
          LabelNodes(..),
          -- * Unevaluated node/edge markers, 
          anyNode, labels, nodes32,
-         -- * evaluating, changing markers
-         evalNode, appl
+         -- * changing markers
+         appl,
+         -- * query evaluation
+         runOn, emptyDiff, switchEvalOff, evalToTable, evalNode
        ) where
 
 import           Control.Monad(zipWithM)
@@ -47,10 +49,9 @@ import           Data.Set(Set)
 import qualified Data.Text as T
 import           Data.Text(Text)
 import           Data.Word(Word8, Word16, Word32)
-import JudyGraph.Enum(JGraph(..), EnumGraph(..), Judy(..), Node, NodeEdge, NodeAttribute (..),
-                      EdgeAttribute(..), Bits(..), EdgeAttr32, empty, hasNodeAttr,
+import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..), Node, NodeEdge,
+                      NodeAttribute (..), EdgeAttribute(..), Bits(..), EdgeAttr32, empty, hasNodeAttr,
                       allChildNodesFromEdges, allChildEdges, adjacentEdgesByAttr, buildWord64,
-                      insertNodeEdgeAttr, insertNodeEdgeAttrE,
                       lookupJudyNodes, showHex, showHex32)
 import System.IO.Unsafe(unsafePerformIO)
 import Debug.Trace
@@ -189,8 +190,7 @@ applyDeep f (Nodes6 ns) = fmap Nodes7 $
 
 -- Keep structure and apply a IO-function to the lowest nesting of two lists
 zipNAttr :: (NodeAttribute nl, EdgeAttribute el) =>
-            EnumGraph nl el
-            -> (Node -> [EdgeAttr32] -> IO [Node])
+            graph nl el -> (Node -> [EdgeAttr32] -> IO [Node])
             -> NAttr -- Node -- first 32 bit of several node-edges
             -> NAttr -- [EdgeAttr32] -- several second 32 bit
             -> IO NAttr -- [Node]) -- looked up nodes
@@ -237,6 +237,11 @@ appl f n = CypherNode (map change (attrN n)) (cols0 n)
         change (Label ls) = Label ls
         change (Nodes ns) = Nodes (f ns)
         change (Nodes2 ns) = Nodes2 (map f ns)
+        change (Nodes3 ns) = Nodes3 (map (map f) ns)
+        change (Nodes4 ns) = Nodes4 (map (map (map f)) ns)
+        change (Nodes5 ns) = Nodes5 (map (map (map (map f))) ns)
+        change (Nodes6 ns) = Nodes6 (map (map (map (map (map f)))) ns)
+        change (Nodes7 ns) = Nodes7 (map (map (map (map (map (map f))))) ns)
 
 ----------------------------------
 -- EDSL trickery inspired by shake
@@ -386,20 +391,21 @@ instance Show nl => Show (NE nl) where
   show (NE es) = "E [" ++ (intercalate "," (map showHex es)) ++ "]"
 
 
-class Table nl el a where
+class Table graph nl el a where
   -- | Evaluate the query to a table
-  table :: EnumGraph nl el -> a -> IO [NE nl]
+  table :: graph nl el -> a -> IO [NE nl]
 
   -- | The result is evaulated but can be reused
-  temp :: EnumGraph nl el -> a -> IO [CypherComp nl el]
+  temp :: graph nl el -> a -> IO [CypherComp nl el]
 
   -- | Updates the nodeEdges and returns the changes.
   --   Overwriting an edge means a deleted edge and a new edge
-  createMem :: EnumGraph nl el -> a -> IO GraphDiff
+  createMem :: graph nl el -> a -> IO GraphDiff
 
   -- | Updates the nodeEdges, return diffs, and write changelogs for the db files
 --create :: EnumGraph nl el -> FilePath -> a
 --          -> IO ((DeleteNodes, NewNodes), (DeleteEdges, NewEdges))
+
 
 type GraphDiff = ((DeleteNodes, NewNodes), (DeleteEdges, NewEdges))
 type DeleteNodes = [Node]
@@ -408,9 +414,7 @@ type DeleteEdges = [(NodeEdge,Node)]
 type NewEdges    = [NodeEdge]
 
 instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
-         Table nl el (CypherNode nl el) where
--- table :: (NodeAttribute nl, EdgeAttribute el) =>
---          EnumGraph nl el -> CypherNode nl el -> IO [NE nl]
+         Table EnumGraph nl el (CypherNode nl el) where
   table graph cypherNode
       | null (cols0 cypherNode) =
           do evalN <- evalNode graph (CypherNode (attrN cypherNode) [])
@@ -431,9 +435,7 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) 
     where comps = reverse (cols0 cypherNode)
 
 instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) =>
-         Table nl el (CypherEdge nl el) where
--- table :: (NodeAttribute nl, EdgeAttribute el) =>
---          EnumGraph nl el -> CypherEdge nl el -> IO [NE nl]
+         Table EnumGraph nl el (CypherEdge nl el) where
   table graph cypherEdge | null (cols1 cypherEdge) = return []
                          | otherwise = evalToTable graph (reverse (cols1 cypherEdge))
 
@@ -448,6 +450,7 @@ instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) 
       | otherwise = fmap snd (runOn graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols1 cypherEdge)
 
+
 switchEvalOff (CN _ cn) = CN False cn
 switchEvalOff (CE _ ce) = CE False ce
 
@@ -455,8 +458,9 @@ emptyDiff = (([],[]),([],[]))
 
 -------------------------------------------------------------------------------------------
 
-evalToTable :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
-               EnumGraph nl el -> [CypherComp nl el] -> IO [NE nl]
+evalToTable :: (Eq nl, Show nl, Show el, Enum nl,
+                NodeAttribute nl, EdgeAttribute el, GraphClass graph nl el) =>
+                graph nl el -> [CypherComp nl el] -> IO [NE nl]
 evalToTable graph comps =
   do (res,_) <- runOn graph False emptyDiff (Map.fromList (zip [0..] comps))
      return (map toNE (Map.elems res))
@@ -465,17 +469,18 @@ evalToTable graph comps =
   toNE (CE _ (CypherEdge as (Just es) c)) = NE es
   toNE (CE _ (CypherEdge as Nothing c)) = NE []
 
-  reduceAttrs :: (NodeAttribute nl, Enum nl) => [NAttr] -> [Int] -> [Node] -> LabelNodes nl
-  reduceAttrs (AllNodes  :as) _ _ = AllNs
-  reduceAttrs ((Label ls):as) l n = reduceAttrs as (ls ++ l) n
-  reduceAttrs ((Nodes ns):as) l n = reduceAttrs as l (ns ++ n)
-  reduceAttrs ((Nodes2 ns):as) l n = reduceAttrs as l (flatten (Nodes2 ns) ++ n)
-  reduceAttrs ((Nodes3 ns):as) l n = reduceAttrs as l (flatten (Nodes3 ns) ++ n)
-  reduceAttrs ((Nodes4 ns):as) l n = reduceAttrs as l (flatten (Nodes4 ns) ++ n)
-  reduceAttrs ((Nodes5 ns):as) l n = reduceAttrs as l (flatten (Nodes5 ns) ++ n)
-  reduceAttrs ((Nodes6 ns):as) l n = reduceAttrs as l (flatten (Nodes6 ns) ++ n)
-  reduceAttrs [] l n | null l    = Ns n
-                     | otherwise = Lbl (map toEnum l)
+
+reduceAttrs :: (NodeAttribute nl, Enum nl) => [NAttr] -> [Int] -> [Node] -> LabelNodes nl
+reduceAttrs (AllNodes  :as) _ _ = AllNs
+reduceAttrs ((Label ls):as) l n = reduceAttrs as (ls ++ l) n
+reduceAttrs ((Nodes ns):as) l n = reduceAttrs as l (ns ++ n)
+reduceAttrs ((Nodes2 ns):as) l n = reduceAttrs as l (flatten (Nodes2 ns) ++ n)
+reduceAttrs ((Nodes3 ns):as) l n = reduceAttrs as l (flatten (Nodes3 ns) ++ n)
+reduceAttrs ((Nodes4 ns):as) l n = reduceAttrs as l (flatten (Nodes4 ns) ++ n)
+reduceAttrs ((Nodes5 ns):as) l n = reduceAttrs as l (flatten (Nodes5 ns) ++ n)
+reduceAttrs ((Nodes6 ns):as) l n = reduceAttrs as l (flatten (Nodes6 ns) ++ n)
+reduceAttrs [] l n | null l    = Ns n
+                   | otherwise = Lbl (map toEnum l)
 
 flatten (Nodes ns) = ns
 flatten (Nodes2 ns) = concat ns
@@ -531,16 +536,16 @@ unEvalCount (CN evaluated _) = if evaluated then 0 else 1
 unEvalCount (CE evaluated _) = if evaluated then 0 else 1
 
 
-evalComp :: (Eq nl, Show nl, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
-             EnumGraph nl el -> (CypherComp nl el) -> IO (CypherComp nl el)
+evalComp :: (Eq nl, Show nl, Enum nl, NodeAttribute nl, EdgeAttribute el, GraphClass graph nl el) =>
+             graph nl el -> (CypherComp nl el) -> IO (CypherComp nl el)
 evalComp graph (CN _  c) = do n <- evalNode graph c
                               return (CN True n)
 
-evalNode :: (Eq nl, Show nl, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
-             EnumGraph nl el -> (CypherNode nl el) -> IO (CypherNode nl el)
+evalNode :: (GraphClass graph nl el, NodeAttribute nl, EdgeAttribute el, Enum nl) =>
+            graph nl el -> (CypherNode nl el) -> IO (CypherNode nl el)
 
 evalNode graph (CypherNode [AllNodes] c) = do
-        return (CypherNode [Nodes [0..(nodeCountE graph)]] c)
+        return (CypherNode [Nodes [0..(nodeCount graph)]] c)
 
 evalNode graph (CypherNode [Label ls] c) = do
         return (CypherNode [Nodes lNodes] c)
@@ -549,13 +554,14 @@ evalNode graph (CypherNode [Label ls] c) = do
         f :: Enum nl => ((Word32,Word32), nl) -> [Word32]
         f ((start,end), nl) | elem (fromEnum nl) ls = [start..end]
                             | otherwise  = []
-        rangeList = toList (rangesE graph)
-        rangeEnds = map (\x -> x-1) $ (tail (map fst rangeList)) ++ [nodeCountE graph]
+        rangeList = toList (ranges graph)
+        rangeEnds = map (\x -> x-1) $ (tail (map fst rangeList)) ++ [nodeCount graph]
         spans = zipWith spanGen rangeList rangeEnds
         spanGen (r, nl) e = ((r,e), nl)
 
 evalNode graph (CypherNode ns c) =
         return (CypherNode ns c)
+
 
 extractNodes (CN _ (CypherNode ns c)) = ns
 
@@ -565,8 +571,9 @@ extractNodes (CN _ (CypherNode ns c)) = ns
 --   sets of nodes and sets of edges (enforced by the EDSL). The algorithm choses the 
 --   node-column which is fastest to compute. Then it choses the edge column left or
 --   right (together with the nodes where it leads) to pick the faster one of the two choices.
-runOn :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
-         EnumGraph nl el -> Bool -> GraphDiff ->
+runOn :: (Eq nl, Show nl, Show el, Enum nl,
+          NodeAttribute nl, EdgeAttribute el, GraphClass graph nl el) =>
+         graph nl el -> Bool -> GraphDiff ->
          Map Int (CypherComp nl el) -> IO (Map Int (CypherComp nl el), GraphDiff)
 runOn graph create ((dns,newns), (des,newEs)) comps
   | unevaluatedNs == 0 = return (comps, ((dns,newns), (des,newEs)))
@@ -668,23 +675,23 @@ nodeEdges (n,as) = map (buildWord64 n) as
 
 -- | Add nodeEdges to the graph and remember the changes so that the graph on the ssd can
 --   be adjusted with edges to delete and add.
-overlaps :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
-            EnumGraph nl el -> [(Node, [(EdgeAttr32,Node)])]
+overlaps :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, GraphClass graph nl el) =>
+            graph nl el -> [(Node, [(EdgeAttr32,Node)])]
             -> IO ([(NodeEdge, Node)], [NodeEdge])
 overlaps jgraph nes =
   do o <- mapM overlap nes
      return (concat (map fst o), -- nodeEdges that have to be deleted (on disk)
              concat (map snd o)) -- nodeEdges that are new (have to be added on disk)
   where
-    j = judyGraphE jgraph
+    j = judyGraph jgraph
     overlap :: (Node, [(EdgeAttr32, Node)]) -> IO ([(NodeEdge, Node)], [NodeEdge])
     overlap (n0,es) = do ls <- mapM test es
                          return (catMaybes (map fst ls), map snd ls)
       where
         test :: (EdgeAttr32, Node) -> IO (Maybe (NodeEdge, Node), NodeEdge)
         test (e,n1) = do
-          (_, (isNew, n2)) <- insertNodeEdgeAttrE True jgraph
-                                                  ((n0, n1), Nothing, Nothing, e, e)
+          (_, (isNew, n2)) <- insertNodeEdgeAttr True jgraph
+                                                 ((n0, n1), Nothing, Nothing, e, e)
 -- insertNodeEdgeAttr useMJ overwrite jgraph ((n0, n1), nl0, nl1, edgeAttr, edgeAttrBase)
           let newEdge = buildWord64 n0 e
           let delEdge = if isNew then Just (newEdge, n2) else Nothing

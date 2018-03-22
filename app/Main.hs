@@ -110,7 +110,7 @@ Example: Calculate dependency boundaries
 
 When the upper and lower version boundary of a library dependency needs to be found, 
 we need to know in which version of a library a function exists. We see a version
-of a library as a set of functions with name, type and namespace (others properties 
+of a library as a set of functions with name, type and namespace (other properties 
 left away for simplicity in this  example).
 The correct boundaries come from an intersection of all sets, with equal functions in the
 intersections. We can broaden this equality later to find name changes of functions, bug

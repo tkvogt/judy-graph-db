@@ -29,7 +29,7 @@ then the functions in this module generate fast access node-edges with the "Grap
 module.
 
 -}
-module JudyGraph (JGraph(..), Judy(..), Node(..), Edge(..),
+module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node(..), Edge(..),
       -- * Construction
       emptyJ, emptyE, fromList, fromListJ, fromListE,
       insertNode, insertNodes, insertNodeLines, insertNodeEdge, insertNodeEdges, union,
@@ -106,11 +106,11 @@ insertNode (ComplexGraph j eg nm em r n) (node, nl) = do
   -- the first index lookup is the count
   let enumNodeEdge = buildWord64 (nodeWithLabel node nl) 0
   numEdges <- J.lookup enumNodeEdge eg
-  when (isJust numEdges) $
-    do --es <- allChildEdges (EnumGraph j eg r n) node
+--  when (isJust numEdges) $ do
+--       es <- allChildEdges (EnumGraph j eg r n) node
             -- :: (NodeAttribute nl, EdgeAttribute el) => IO [EdgeAttr32]
 --       ns <- allChildNodesFromEdges (EnumGraph j eg r n :: (NodeAttribute nl, EdgeAttribute el) => EnumGraph nl el) node es
-       mapM_ (updateNodeEdges (JGraph j r n) node nl) [] -- (zip es ns)
+--       mapM_ (updateNodeEdges (JGraph j r n) node nl) [] -- (zip es ns)
   return (ComplexGraph j eg (Just newNodeAttr) em r n)
 -- where
 --  ace = allChildEdges (EnumGraph j eg r n) node
@@ -121,7 +121,7 @@ insertNodes :: (NodeAttribute nl, EdgeAttribute el) =>
 insertNodes jgraph nodes = foldM insertNode jgraph nodes
 
 
-instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
+instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
          GraphClass ComplexGraph nl el where
 
   empty ranges = do
@@ -133,7 +133,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
 
 
   -- | Are the judy arrays and nodeLabelMap and edgeLabelMap empty
-  isNull :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
+  isNull :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
             ComplexGraph nl el -> IO Bool
   isNull (ComplexGraph graph enumGraph nodeLabelMap edgeLabelMap rs n) = do
     isN <- isNull (EnumGraph graph enumGraph rs n ::
@@ -167,7 +167,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
 
   -- | Make a union of two graphs by making a union of 'complexNodeLabelMap' and 
   --   'complexEdgeLabelMap' but also calls 'unionJ' for a union of two judy arrays
-  union :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
+  union :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
            ComplexGraph nl el -> ComplexGraph nl el -> IO (ComplexGraph nl el)
   union (ComplexGraph j0 enumJ0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0 n0)
         (ComplexGraph j1 enumJ1 complexNodeLabelMap1 complexEdgeLabelMap1 ranges1 n1) = do
@@ -230,6 +230,10 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
     j = judyGraphC jgraph
 
 
+  allChildEdges jgraph node = do
+    return []
+
+
   filterEdgesTo jgraph nodeEdges f = do
     values <- mapM (\n -> J.lookup n j) nodeEdges
     return (map fst (filter filterNode (zip nodeEdges values)))
@@ -237,6 +241,12 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
          filterNode (ne, Just v) | f v = True
                                  | otherwise = False
          filterNode _ = False
+
+
+  nodeCount graph = nodeCountC graph
+  ranges :: Enum nl => ComplexGraph nl el -> NonEmpty (RangeStart, nl)
+  ranges graph = rangesC graph
+  judyGraph graph = judyGraphC graph
 
 ---------------------------------------------------------------------------------------
 -- Changing node labels
@@ -272,4 +282,43 @@ lookupNode graph n = maybe Nothing (Map.lookup n) (complexNodeLabelMap graph)
 lookupEdge :: (NodeAttribute nl, EdgeAttribute el) =>
               ComplexGraph nl el -> Edge -> Maybe [el]
 lookupEdge graph (n0,n1) = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelMap graph)
+
+--------------------------------------------------------------------------------------------
+
+instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
+         Table ComplexGraph nl el (CypherNode nl el) where
+  table graph cypherNode
+      | null (cols0 cypherNode) =
+          do evalN <- evalNode graph (CypherNode (attrN cypherNode) [])
+             evalToTable graph [CN True evalN]
+      | otherwise = evalToTable graph (reverse (cols0 cypherNode))
+
+  temp graph cypherNode
+      | null (cols0 cypherNode) =
+          do evalN <- evalNode graph (CypherNode (attrN cypherNode) [])
+             return [CN False evalN]
+      | otherwise = fmap (map switchEvalOff . Map.elems . fst)
+                         (runOn graph False emptyDiff (Map.fromList (zip [0..] comps)))
+    where comps = reverse (cols0 cypherNode)
+
+  createMem graph cypherNode
+      | null (cols0 cypherNode) = return (([],[]), ([],[])) -- TODO
+      | otherwise = fmap snd (runOn graph True emptyDiff (Map.fromList (zip [0..] comps)))
+    where comps = reverse (cols0 cypherNode)
+
+instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) =>
+         Table ComplexGraph nl el (CypherEdge nl el) where
+  table graph cypherEdge | null (cols1 cypherEdge) = return []
+                         | otherwise = evalToTable graph (reverse (cols1 cypherEdge))
+
+  temp graph cypherEdge
+      | null (cols1 cypherEdge) = return []
+      | otherwise = fmap (map switchEvalOff . Map.elems . fst)
+                         (runOn graph False emptyDiff (Map.fromList (zip [0..] comps)))
+    where comps = reverse (cols1 cypherEdge)
+
+  createMem graph cypherEdge
+      | null (cols1 cypherEdge) = return (([],[]), ([],[]))
+      | otherwise = fmap snd (runOn graph True emptyDiff (Map.fromList (zip [0..] comps)))
+    where comps = reverse (cols1 cypherEdge)
 
