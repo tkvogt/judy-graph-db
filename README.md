@@ -7,8 +7,8 @@ judy-graph-db is a graph database based on [judy arrays](https://en.wikipedia.or
 
 judy-graph-db should be
  - fast: Because of judy-arrays
- - typesave and convenient: The Cypher-like query EDSL (Embedded Domain Specific Language) inspired by Neo4j eg enforces node/edge alternation. Being an EDSL has the advantage that we don't need to invent a big language like Cypher. There will never be a book written about this library, which IMHO what convenience is really about. Look at migration from Neo4j.
- - memory efficient: nodes/edges are represented with Word32 indexes. Typeclasses are used to extract speed relevant properties
+ - typesave and convenient: The Cypher-like query EDSL (Embedded Domain Specific Language) inspired by Neo4j eg enforces node/edge alternation. An EDSL has the advantage that we don't need to invent a big language like Cypher. There will never be a book written about this library, which IMHO what convenience is really about. Look at migration from Neo4j.
+ - memory efficient: nodes are represented with Word32 indexes, edges also with Word32, if possible. Typeclasses are used to compress speed relevant properties into 32 bit.
  - flexible: Several typeclass graph instances balance between speed, memory efficiency and convenience
  - transparent: We explain all algorithms, and because of Haskell the library is easy to extend (if you are a Haskell programmer). As we use no monad apart from the IO-monad, there is only basic Haskell knowledge necessary.
 
@@ -26,11 +26,13 @@ Overview
 
 When a query is executed, an algorithm typically doesn't need to access all parts of a graph. It would be ideal if the programmer could influence where parts of the graph end up: L1/L2/L3-Cache, memory or HD/SSD.
 
-<img src="doc/idea.png" width="300">
+<img src="doc/idea.png" width="600">
 
 
 Judy Arrays
 ===========
+
+<img src="doc/judy.png" width="600">
 
 Graph Types
 =================
@@ -45,5 +47,6 @@ EnumGraph
 
 ComplexGraph
 ------------
+
 
 
