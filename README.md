@@ -26,13 +26,13 @@ Overview
 
 When a query or an algorithm is executed on the graph, it typically doesn't need to access all parts of the graph. It would be ideal if the programmer could influence where parts of the graph end up: L1/L2/L3-Cache, memory or HD/SSD.
 
-<img src="doc/idea.png" width="600">
+<img src="doc/idea.svg" width="500">
 
 
 Judy Arrays
 ===========
 
-<img src="doc/judy.png" width="600">
+<img src="doc/judy.svg" width="500">
 
 Graph Types
 ===========
@@ -91,15 +91,21 @@ N [Nodes3 [[[5],[3,6],[],[]]]]]
 ```
 
 This nesting of lists is equivalent to:
-<img src="doc/result.svg" width="600">
+
+<img src="doc/result.svg" width="300">
 
 Executing Patterns
 ------------------
 Patterns can be executed in several ways:
- - ```query <- table jgraph (p --> v)```
-   ```table``` evaluates the query to [[Node]], like ```temp``` but flattens the output to a list of nodes on every layer.
  - ```t     <- temp jgraph (p --> v)```
+
    ```temp``` evaluates the query to values that can be reused in another query. A graph can be represented by layers of nested lists, from ```Nodes []``` to ```Nodes7 [[[[[[[]]]]]]]```.
+
+ - ```query <- table jgraph (p --> v)```
+
+   ```table``` works like ```temp``` but flattens the output to a list of nodes on every layer.
+   Evaluates the query to [[Node]].
  - ```diff  <- createMem jgraph (p --> v)```
+
    ```createMem``` adds/deletes edges if nodes have been added/deleted from the layers.
 
