@@ -6,24 +6,203 @@ This is taken from https://neo4j.com/docs/cypher-refcard/current/ .
 
 ## PATTERNS ##
 
-| Neo4j         | judy-graph-db | Comment  |
-| ------------- |:-------------:| -------- |
-| ``` (n:Person) ``` <br> Node with Person label. | ``` node (labels [Person]) ``` | If you want to reuse the node use:<br> ``` n where n = node (labels [Person]) ```|
-| ```(n:Person:Swedish)``` <br> Node with both Person and Swedish labels.   | ``` node (labels [SwedishPerson]) ``` | In judyDB the labels partition the nodes. So every node is in only one partition. This has advantages in speed and memory efficiency and is good enough in most cases. If it should not be enough use where_ clause and query the secondary structure (having created it at the beginning). |
-| ```(n:Person {name: $value})``` <br> Node with the declared properties. | ```node (labels [Person]) (where_ filt)``` <br> ```where filt x = name x == "value" ```| |
-| ```()-[r {name: $value}]-()``` <br> Matches relationships with the declared properties. | ```node anyNode --| named |-- node anyNode``` <br> ```where named = edge (whereE filt)``` <br> ```filt x = name x == "value" ```| |
-| ``` (m)-->(n) ``` <br> Relationship from m to n. | ``` m --> n ``` <br> ``` where ``` <br> ``` m = node anyNode ``` <br> ``` n = node anyNode``` | You have to say what m and n are |
-| ``` (m)--(n) ``` <br> Relationship in any direction between m and n. | ```m ~~ n``` | Like above, but undirected. Haskell uses ```--``` for comments, so we have to use tildes: ```~~``` |
-| ``` (m:Person)-->(n) ``` <br> Node m labeled Person with relationship to n.      | ``` m --> n ``` <br> ``` where m = node (labels [Person])``` <br> ``` n = node anyNode``` | |
-| ``` (m)<-[:KNOWS]-(n) ``` <br> Relationship of type KNOWS from m to n. | ```m <--| knows |-- n``` <br> ```where knows = edge (attr KNOWS)```| |
-| ```(m)-[:KNOWS|:LOVES]->(n)``` <br> Relationship of type KNOWS or of <br> type LOVES from m to n. | ```m <--| knowsLoves |-- n``` <br> ```where knowsLoves = edge (attr KNOWS) (attr LOVES)```| |
-| ```(m)-[r]->(n)``` <br> Bind the relationship to variable r. | ```m <--| r |-- n``` <br> ```where r = edge (whereE )```| ? If you bind it to something then you use it to somehow restrict the edges used. |
-| ```(m)-[*1..5]->(n)``` <br> Variable length path of between 1 and 5 <br> relationships from m to n. | ```m <--| r |-- n``` <br> ```where r = edge (1…5)```| |
-| ```(m)-[*]->(n)``` <br> Variable length path of any number of <br> relationships from m to n. | ```m <--| r |-- n``` <br> ```where r = edge (1…4294967295)``` | Enough? I'll add another more elegant function if needed. Currenlty I never needed this. |
-| ```(m)-[:KNOWS]->(n {property: $value})``` <br> A relationship of type KNOWS from a node <br> m to a node n with the declared property. | | |
-| ```shortestPath((n1:Person)-[*..6]-(n2:Person))``` <br> Find a single shortest path. | | |
-| ```allShortestPaths((n1:Person)-[*..6]->(n2:Person))``` <br> Find all shortest paths. | | |
-| ```size((n)-->()-->())``` <br> Count the paths matching the pattern. | | |
+#### Neo4j ####
+``` (n:Person) ```
+Node with Person label.
+
+#### judy-graph-db ####
+```haskell
+node (labels [Person])
+```
+If you want to reuse the node use:
+```haskell
+   n where n = node (labels [Person])
+```
+
+---
+
+#### Neo4j ####
+``` (n:Person:Swedish) ```
+Node with both Person and Swedish label.
+
+#### judy-graph-db ####
+```haskell
+node (labels [SwedishPerson])
+```
+In judyDB the labels partition the nodes. So every node is in only one partition. This has advantages in speed and memory efficiency and is good enough in most cases. If it should not be enough use where_ clause and query the secondary structure (having created it at the beginning).
+
+---
+
+#### Neo4j ####
+```(n:Person {name: $value})```
+Node with the declared properties.
+
+#### judy-graph-db ####
+```haskell
+node (labels [Person]) (where_ filt)
+  where filt x = name x == "value"
+```
+
+---
+
+#### Neo4j ####
+```()-[r {name: $value}]-()```
+Matches relationships with the declared properties.
+
+#### judy-graph-db ####
+```haskell
+  node anyNode --| named |-- node anyNode
+    where named = edge (whereE filt)
+          filt x = name x == "value"
+```
+
+---
+
+#### Neo4j ####
+``` (m)-->(n) ```
+Relationship from m to n.
+
+#### judy-graph-db ####
+```haskell
+  m --> n
+    where m = node anyNode
+          n = node anyNode
+```
+You have to say what m and n are
+
+---
+
+#### Neo4j ####
+``` (m)-->(n) ```
+Relationship from m to n.
+
+#### judy-graph-db ####
+```haskell
+m ~~ n
+  where m = node anyNode
+        n = node anyNode
+```
+Like above, but undirected. Haskell uses ```--``` for comments, so we have to use tildes: ```~~```
+
+---
+
+#### Neo4j ####
+``` (m:Person)-->(n) ```
+Node m labeled Person with relationship to n.
+#### judy-graph-db ####
+```haskell
+m --> n
+  where m = node (labels [Person])
+        n = node anyNode
+```
+
+---
+
+#### Neo4j ####
+``` (m)<-[:KNOWS]-(n) ```
+Relationship of type KNOWS from m to n.
+
+#### judy-graph-db ####
+```haskell
+m <--| knows |-- n
+  where knows = edge (attr KNOWS)
+```
+
+---
+
+#### Neo4j ####
+``` (m)<-[:KNOWS|:LOVES]-(n) ```
+Relationship of type KNOWS or of type LOVES from m to n.
+
+#### judy-graph-db ####
+```haskell
+m <--| knowsLoves |-- n
+  where knowsLoves = edge (attr KNOWS) (attr LOVES)
+```
+
+---
+
+#### Neo4j ####
+``` (m)-[r]->(n) ```
+Bind the relationship to variable r.
+
+#### judy-graph-db ####
+```haskell
+m <--| r |-- n
+  where r = edge (whereE )
+```
+? If you bind it to something then you use it to somehow restrict the edges used.
+
+---
+
+#### Neo4j ####
+``` (m)-[*1..5]->(n) ```
+Variable length (between 1 and 5) path in relationships from m to n.
+
+#### judy-graph-db ####
+```haskell
+m <--| r |-- n
+  where r = edge (1…5)
+```
+
+---
+
+#### Neo4j ####
+``` (m)-[*]->(n) ```
+Variable length path of any number of relationships from m to n.
+
+#### judy-graph-db ####
+```haskell
+m <--| r |-- n
+  where r = edge (1…4294967295)
+```
+Enough? I'll add another more elegant function if needed. Curretly I never needed this.
+
+---
+
+#### Neo4j ####
+``` (m)-[:KNOWS]->(n {property: $value}) ```
+A relationship of type KNOWS from a node m to a node n with the declared property.
+
+#### judy-graph-db ####
+```haskell
+TODO
+```
+
+---
+
+#### Neo4j ####
+``` shortestPath((n1:Person)-[*..6]-(n2:Person)) ```
+Find a single shortest path.
+
+#### judy-graph-db ####
+```haskell
+TODO
+```
+
+---
+
+#### Neo4j ####
+``` allShortestPath((n1:Person)-[*..6]-(n2:Person)) ```
+Find all shortest paths.
+
+#### judy-graph-db ####
+```haskell
+TODO
+```
+
+---
+
+#### Neo4j ####
+``` size((n)-->()-->()) ```
+Count the paths matching the pattern.
+
+#### judy-graph-db ####
+```haskell
+TODO
+```
+
+---
 
 ## Read Query Structure ##
 
