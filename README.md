@@ -126,7 +126,34 @@ data (NodeAttribute nl, EdgeAttribute el) =>
 Cypher EDSL
 ===========
 
-A query tries to match a pattern on a graph. This pattern is an alternation between node and edge specifiers.
+A query tries to match a pattern on a graph. This pattern is an alternation between node and edge specifiers glued together with Pattern combinators.
+
+Pattern combinators
+-------------------
+
+An example how to combine node and edge specifiers, with ```--|``` and ```--|``` and other [pattern combinators](https://github.com/tkvogt/judy-graph-db/blob/54a41b25c516cf232c3364301285444ec91d1cc8/src/JudyGraph/Cypher.hs#L62-L83):
+
+```Haskell
+  query <- temp jgraph (simon --| raises |-- issue --| references |-- issue)
+ where
+  simon  = node (nodes32 [0]) :: CyN
+  raises = edge (attr Raises) :: CyE
+  issue  = node (labels [ISSUE]) :: CyN
+```
+
+The output of the query:
+
+```Bash
+N [Nodes [0]],
+E [],
+N [Nodes2 [[3,4]]],
+E [],
+N [Nodes3 [[[5],[3,6]]]]
+```
+
+This nesting of lists is equivalent to:
+
+<img src="doc/result.svg" width="300">
 
 Node Specifiers
 ---------------
@@ -156,33 +183,6 @@ It can only be applied to labels whose bit represenation is orthogonal. Imagine 
    0b001, 0b010, 0b011, 0b100, 0b101, 0b110, 0b111 (leaving away 0b000). As you can see you can't use too many ```orth``` arguments.
  - ```(where_ filt)``` This is like the WHERE you know from SQL or Cypher. The only difference to Cypher is that it only applies to one edge specifier. If the WHERE should be applied globally on several edge specifiers, you have to do this calculation yourself. TODO: Example
  - ```(several 1…3)``` Not implemented yet. But should be equivalent to ```(m)-[*1..3]->(n)``` in Neo4j.
-
-Pattern combinators
--------------------
-
-An example how to combine node and edge specifiers, with ```--|``` and ```--|``` and other [pattern combinators](https://github.com/tkvogt/judy-graph-db/blob/54a41b25c516cf232c3364301285444ec91d1cc8/src/JudyGraph/Cypher.hs#L62-L83):
-
-```Haskell
-  query <- temp jgraph (simon --| raises |-- issue --| references |-- issue)
- where
-  simon  = node (nodes32 [0]) :: CyN
-  raises = edge (attr Raises) :: CyE
-  issue  = node (labels [ISSUE]) :: CyN
-```
-
-The output of the query:
-
-```Bash
-N [Nodes [0]],
-E [],
-N [Nodes2 [[3,4]]],
-E [],
-N [Nodes3 [[[5],[3,6]]]]
-```
-
-This nesting of lists is equivalent to:
-
-<img src="doc/result.svg" width="300">
 
 Evaluating Patterns
 ------------------
