@@ -128,18 +128,21 @@ Cypher EDSL
 
 A query tries to match a pattern on a graph. This pattern is an alternation between node and edge specifiers.
 
-Node and Edge Specifiers
-------------------------
+Node Specifiers
+---------------
 
 Nodes can be specified
  - directly: ```node (nodes32 [0,1])```
  - as nodes in several labels: ```node (labels [ISSUE, PULL_REQUEST])```
  - as all nodes: ```node anyNode```
 
-If all edges should be followed from a layer in a query use ```~~```, ```-->``` or ```<--```
+Edge Specifiers
+---------------
+
+If all edges should be followed from a layer in a query use ```~~```, ```-->``` or ```<--```.
+
 Otherwise use ```<--|```, ```|-->```, ```|--``` or ```--|``` with an edge specifier between the ```|```.
 The edges that should be followed can be restricted by one or several arguments to the ```edge```-function:
-one
 ```haskell
 edge (attr KNOWS) (attr LOVES) (several 1…3)
 ```
