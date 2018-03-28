@@ -117,7 +117,7 @@ Relationship of type KNOWS or of type LOVES from m to n.
 #### judy-graph-db ####
 ```haskell
 m <--| knowsLoves |-- n
-  where knowsLoves = edge (attr KNOWS) (attr LOVES)
+  where knowsLoves = edge (orth KNOWS) (orth LOVES)
 ```
 
 ---

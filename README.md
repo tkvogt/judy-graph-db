@@ -7,7 +7,7 @@ judy-graph-db is a graph database based on [judy arrays](https://en.wikipedia.or
 
 judy-graph-db should be
  - fast: Because of judy-arrays
- - typesave and convenient: The [Cypher](https://neo4j.com/developer/cypher-query-language/)-like query [EDSL](https://wiki.haskell.org/Embedded_domain_specific_language) eg enforces node/edge alternation. An EDSL has the advantage that we don't need to invent a big language like Cypher. There will never be a book written about this library, which IMHO what convenience is really about. Look at [comparison to Neo4j](../master/doc/Neo4j.md).
+ - typesave and convenient: The [Cypher](https://neo4j.com/developer/cypher-query-language/)-like query [EDSL](https://wiki.haskell.org/Embedded_domain_specific_language) eg enforces node/edge alternation. An EDSL has the advantage that we don't need to invent a big language like Cypher. There will never be a book written about this library, which IMHO is what convenience is really about. Look at [comparison to Neo4j](../master/doc/Neo4j.md).
  - memory efficient: nodes are represented with Word32 indexes, edges also with Word32, if possible. Typeclasses are used to compress speed relevant properties into 32 bit.
  - flexible: Several typeclass graph instances balance between speed, memory efficiency and convenience
  - transparent: We explain all algorithms, and because of Haskell the library is easy to extend (if you are a Haskell programmer). As we use no monad apart from the IO-monad, there is only basic Haskell knowledge necessary.
@@ -24,23 +24,23 @@ On the downside (currently):
 Overview
 ========
 
-When a query or an algorithm is executed on the graph, it typically doesn't need to access all parts of the graph.
+When a query or an algorithm is executed on the graph, it typically doesn't need to access all parts of the graph. We differentiate three parts:
  - A node can be represented just with its Word32-index. See the small red dot and lines in image below.
- - A node/edge could also concist of a record of strings, Int, Bools. Visualized with the middle sized circles and lines
+ - A node/edge could also concist of a record of Strings, Ints, ... . Visualized with the middle sized circles and lines
  - If it is critical that no data is ever lost, parts of the graph have to be persisted, see the big circle and lines.
 
 If the strings are only needed in the final step of an algorithm while an int-counter and word32-index are mostly used, we try to store it in the red/small structure. It would be ideal if we could influence where parts of the graph end up: L1/L2/L3-Cache, memory or HD/SSD.
 
 <img src="doc/idea.svg" width="500">
 
-Most databases take aways this control. For example they talk about [warming up](https://neo4j.com/developer/kb/warm-the-cache-to-improve-performance-from-cold-start/).
+Most databases take away this control. For example they talk about [warming up](https://neo4j.com/developer/kb/warm-the-cache-to-improve-performance-from-cold-start/).
 
 Judy Arrays
 ===========
 
-Judy arrays are a key-value storage that promises very little cache misses when the key indexes are near to each other. This obviously means that only the lowest bits should change in the innermost loop.
+Judy arrays are a key-value storage that promises very little cache misses when the key indexes are near to each other: [Quote](http://www.nothings.org/computer/judy/): "If your data is often sequential, or approximately sequential (e.g. an arithmetic sequence stepping by 64), Judy might be the best data structure to use". This obviously means that only the lowest bits should change in the innermost loop.
 In a lot of graph algorithms you take a node, then you want to do something with all edges of a certain label (setting the edge attr bits in the lower image). Iterating all these edges is done with lowest bits of the 64bit keys, called edge enum.
-We use typeclasses to freely set the size of attr an enum bits to adapt this structure to your needs.
+We use typeclasses to freely set the size of attr and enum bits to adapt this structure to your needs.
 
 <img src="doc/judy.svg" width="500">
 
@@ -93,7 +93,7 @@ EnumGraph
 ---------
 
 If there are holes in the key range, it would be very inefficient to calulcate all child nodes by enumerating the keys. A second ```enumGraph``` is used to enumerate all edges.
-As an example where this can happen, imagine a search engine that allows unicode in the search string. We put a unicode value in the edge, not all unicodes appear, but we might want to know how all child nodes of a node.
+As an example where this can happen, imagine a search engine that allows unicode in the search string. We put a unicode value in the edge, not all unicodes appear, but we might want to know all child nodes of a node.
 
 ```Haskell
 data (NodeAttribute nl, EdgeAttribute el) =>
@@ -133,14 +133,26 @@ Node and Edge Specifiers
 
 Nodes can be specified
  - directly: ```node (nodes32 [0,1])```
- - as nodes in several labels labels: ```node (labels [ISSUE, PULL_REQUEST])```
+ - as nodes in several labels: ```node (labels [ISSUE, PULL_REQUEST])```
  - as all nodes: ```node anyNode```
 
-Edges are
- - attr
- - orth
- - where_
- - several
+If all edges should be followed from a layer in a query use ```~~```, ```-->``` or ```<--```
+Otherwise use ```<--|```, ```|-->```, ```|--``` or ```--|``` with an edge specifier between the ```|```.
+The edges that should be followed can be restricted by one or several arguments to the ```edge```-function:
+one
+```haskell
+edge (attr KNOWS) (attr LOVES) (several 1…3)
+```
+
+ - ```(attr LABEL)``` follows all LABEL-edges, adding ```attr LABEL_2``` means that these edges are also followed
+ - ```(orth LABEL)``` This had to be introduced to allow the ```|``` in ```(m)<-[:KNOWS|:LOVES]-(n)```.
+It can only be applied to labels whose bit represenation is orthogonal. Imagine this like vectors in vector space that form a base. And now we have a convenient notation to follow all combinations.
+   For example as we encode labels with binary: ```LABELA = 0b001, LABELB = 0b010, LABELC = 0b100```
+   Now ```(orth LABELA) (orth LABELB)``` creates the 2²-1 attrs: 0b010, 0b100, 0b110 (leaving away 0b000)
+   and ```(orth LABELA) (orth LABELB) (orth LABELC)``` creates the 2³-1 attrs:
+   0b001, 0b010, 0b011, 0b100, 0b101, 0b110, 0b111 (leaving away 0b000). As you can see you can't use too many ```orth``` arguments.
+ - ```(where_ filt)``` This is like the WHERE you know from SQL or Cypher. The only difference to Cypher is that it only applies to one edge specifier. If the WHERE should be applied globally on several edge specifiers, you have to do this calculation yourself. TODO: Example
+ - ```(several 1…3)``` Not implemented yet. But should be equivalent to ```(m)-[*1..3]->(n)``` in Neo4j.
 
 Pattern combinators
 -------------------
