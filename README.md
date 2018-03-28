@@ -29,7 +29,7 @@ When a query or an algorithm is executed on the graph, it typically doesn't need
  - A node/edge could also concist of a record of strings, Int, Bools. Visualized with the middle sized circles and lines
  - If it is critical that no data is ever lost, parts of the graph have to be persisted, see the big circle and lines.
 
-If the strings are only needed in the final step of an algorithm while an int-counter and word32-index are mostly used, then it would be ideal if we could influence where parts of the graph end up: L1/L2/L3-Cache, memory or HD/SSD.
+If the strings are only needed in the final step of an algorithm while an int-counter and word32-index are mostly used, we try to store it in the red/small structure. It would be ideal if we could influence where parts of the graph end up: L1/L2/L3-Cache, memory or HD/SSD.
 
 <img src="doc/idea.svg" width="500">
 
@@ -38,8 +38,9 @@ Most databases take aways this control. For example they talk about [warming up]
 Judy Arrays
 ===========
 
-Judy arrays are a key-value storage that promises very little cache misses when the key indexes are near to each other. This obviously means that only the lowest bits should change in the lowest loop.
-In a lot of algorithms you take a node, then you want to do something with all edges of a certain label (setting the edge attr bits in the lower image). In the picture below you can see that the lowest bits of the 64bit keys are called edge enum. We use typeclasses to freely set the size of attr an enum bits to adapt this structure to your needs.
+Judy arrays are a key-value storage that promises very little cache misses when the key indexes are near to each other. This obviously means that only the lowest bits should change in the innermost loop.
+In a lot of graph algorithms you take a node, then you want to do something with all edges of a certain label (setting the edge attr bits in the lower image). Iterating all these edges is done with lowest bits of the 64bit keys, called edge enum.
+We use typeclasses to freely set the size of attr an enum bits to adapt this structure to your needs.
 
 <img src="doc/judy.svg" width="500">
 
