@@ -98,7 +98,7 @@ data (NodeAttribute nl, EdgeAttribute el) =>
 ComplexGraph
 ------------
 
-There are cases where properties cannot be compressed into 32 bit edges, but there is enough space for a convenient Data.Map-structure. On the other hand we still suspect the judy array to be faster. Some algoritms might only need the judy array, while another needs more. We allow both. This is still in development. Might also be needed when the judy array overflows in 1% of the cases and then we need a bigger structure. For example you use only the latin characters from unicode and then a special character to force looking up in Data.Map (like utf8).
+There are cases where properties cannot be compressed into 32 bit edges, but there is enough space for a convenient Data.Map-structure. On the other hand we still suspect the judy array to be faster. Some algoritms might only need the judy array, while another one needs more. We allow both. This is still in development. Might also be needed when the judy array overflows in 1% of the cases and then we need a bigger structure. For example you use only the latin characters from unicode and then a special character to force looking up in Data.Map (like utf8).
 
 
 ```Haskell
@@ -185,7 +185,8 @@ Sketch of how this works:
     - middle: label(s) given
     - big: any node
 
- - Search for the smallest node specifier (left to right)
+ - Search for the smallest node specifier.
+ - In case several node specifiers have equal complexity, the leftmost is evaluated first.
  - Evaluate a node layer and see if node sets on the left or right are smaller.
    Then calculate the smaller node set by visiting the adjacent edges.
  - Repeat until all node/edge specifiers are evaluated
