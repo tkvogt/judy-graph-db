@@ -7,7 +7,7 @@ judy-graph-db is a graph database based on [judy arrays](https://en.wikipedia.or
 
 judy-graph-db should be
  - fast: Because of judy-arrays
- - typesave and convenient: The [Cypher](https://neo4j.com/developer/cypher-query-language/)-like query [EDSL](https://wiki.haskell.org/Embedded_domain_specific_language) eg enforces node/edge alternation. An EDSL has the advantage that we don't need to invent a big language like Cypher. There will never be a book written about this library, which IMHO what convenience is really about. Look at [comparison to Neo4j](../blob/master/doc/Neo4j.md).
+ - typesave and convenient: The [Cypher](https://neo4j.com/developer/cypher-query-language/)-like query [EDSL](https://wiki.haskell.org/Embedded_domain_specific_language) eg enforces node/edge alternation. An EDSL has the advantage that we don't need to invent a big language like Cypher. There will never be a book written about this library, which IMHO what convenience is really about. Look at [comparison to Neo4j](../master/doc/Neo4j.md).
  - memory efficient: nodes are represented with Word32 indexes, edges also with Word32, if possible. Typeclasses are used to compress speed relevant properties into 32 bit.
  - flexible: Several typeclass graph instances balance between speed, memory efficiency and convenience
  - transparent: We explain all algorithms, and because of Haskell the library is easy to extend (if you are a Haskell programmer). As we use no monad apart from the IO-monad, there is only basic Haskell knowledge necessary.
@@ -141,7 +141,7 @@ An example how to combine node and edge specifiers, with ```--|``` and ```--|```
   query <- temp jgraph (simon --| raises |-- issue --| references |-- issue)
  where
   simon  = node (nodes32 [0]) :: CyN
-  raises = edge (attr Raises) (attr Closes) :: CyE
+  raises = edge (attr Raises) :: CyE
   issue  = node (labels [ISSUE]) :: CyN
 ```
 
