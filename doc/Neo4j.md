@@ -1,4 +1,4 @@
-# Comparison with Neo4j#
+# Comparison with Neo4j #
 
 It is possible to replace Neo4j commands with native Haskell functions.<br>
 There are of course differences because an EDSL is slightly less comfortable than the Neo4j DSL. <br>

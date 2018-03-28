@@ -7,7 +7,7 @@ judy-graph-db is a graph database based on [judy arrays](https://en.wikipedia.or
 
 judy-graph-db should be
  - fast: Because of judy-arrays
- - typesave and convenient: The [Cypher](https://neo4j.com/developer/cypher-query-language/)-like query [EDSL](https://wiki.haskell.org/Embedded_domain_specific_language) eg enforces node/edge alternation. An EDSL has the advantage that we don't need to invent a big language like Cypher. There will never be a book written about this library, which IMHO what convenience is really about. Look at migration from Neo4j.
+ - typesave and convenient: The [Cypher](https://neo4j.com/developer/cypher-query-language/)-like query [EDSL](https://wiki.haskell.org/Embedded_domain_specific_language) eg enforces node/edge alternation. An EDSL has the advantage that we don't need to invent a big language like Cypher. There will never be a book written about this library, which IMHO what convenience is really about. Look at [comparison to Neo4j](../blob/master/doc/Neo4j.md).
  - memory efficient: nodes are represented with Word32 indexes, edges also with Word32, if possible. Typeclasses are used to compress speed relevant properties into 32 bit.
  - flexible: Several typeclass graph instances balance between speed, memory efficiency and convenience
  - transparent: We explain all algorithms, and because of Haskell the library is easy to extend (if you are a Haskell programmer). As we use no monad apart from the IO-monad, there is only basic Haskell knowledge necessary.
@@ -17,7 +17,7 @@ On the downside (currently):
  - Deletion not tested and slows down the queries
  - No persistency yet
  - No thoughts on concurrency yet
- - No REST API yet (wich is maybe good for typesafety and that there are no standard passwords like MongoDB)
+ - No REST API yet (wich is maybe good for typesafety and that there are no standard passwords like [MongoDB](https://www.theregister.co.uk/2017/01/11/mongodb_ransomware_followup/))
  - Cannot handle graphs that don't fit into memory
  - Judy Arrays are in IO. It is a binding to a C libary that is not easy to understand.
 
@@ -38,17 +38,32 @@ Being forced to put edge properties into 32 bit is a strong limitation. But we c
 
 Associate a Word32-node with a type
 -----------------------------------
-In the examples we came up so far it was always possible to put nodes into a small set of classes (associate them with a type). In ghc core for example there are 9 different types of nodes/constructors:
+In the examples we came up so far it was always possible to put nodes into a small set of classes (associate them with a type). In ghc core for example there are 10 different types of nodes/constructors:
  - functions, types, application, literals, ...
+
 If the nodes have a lot more than 10 types, it is almost always possible to generalize them into no more than ~10 types.
 
 Ranges to interpret edges differently
 -------------------------------------
-We have focused on analysing a set of static files. Therefore after sorting it can be calculated how many type,function, application, ... - nodes there are and they can be put into a large file. Enumerating these nodes puts every type of node into an index range. If a query was made that returns a Word32 index of a node, we can find out in which range it is, therefore its type. And then we intepret the edge depending on the node type.
+We have focused on analysing a set of static files. Therefore after sorting, it can be calculated how many type,function, application, ... - nodes there are and they can be put into a large file. Enumerating these nodes puts every type of node into an index range. If a query was made that returns a Word32 index of a node, we can find out in which range it is, therefore its type. And then we intepret the edge depending on the node type.
 
+Typeclasses to convert Node/Edge-Attributes
+-----------------------------------------
+To increase readability and avoid erros, we use typeclasses to convert complex attributes into bits of a Word32.
+
+```Haskell
+class NodeAttribute nl where
+    fastNodeAttr :: nl -> (Bits, Word32)
+```
 
 Graph Types
 ===========
+
+You have the choice between
+ - JGraph: Fast and memory effienct, but not usable in all cases
+ - EnumGraph: An additional graph to enumerate edges that are not used continuously
+ - ComplexGraph: Fast but not memory efficient. If node or edge attributes don't fit into 32 bit,
+   there need to be additional Data.Map structures, but the judy arrays are kept for speed.
 
 JGraph
 ------
@@ -120,7 +135,8 @@ Edges are
 Pattern combinators
 -------------------
 
-An example how to combine node and edge specifiers, with ```--|``` and ```--|```. For all pattern combinators see []()
+An example how to combine node and edge specifiers, with ```--|``` and ```--|``` and other [pattern combinators](https://github.com/tkvogt/judy-graph-db/blob/54a41b25c516cf232c3364301285444ec91d1cc8/src/JudyGraph/Cypher.hs#L62-L83):
+
 ```Haskell
   query <- temp jgraph (simon --| raises |-- issue --| references |-- issue)
  where
@@ -143,7 +159,7 @@ This nesting of lists is equivalent to:
 
 <img src="doc/result.svg" width="300">
 
-Executing Patterns
+Evaluating Patterns
 ------------------
 Patterns can be executed in several ways:
  - ```t     <- temp jgraph (p --> v)```
@@ -153,12 +169,30 @@ Patterns can be executed in several ways:
  - ```query <- table jgraph (p --> v)```
 
    ```table``` works like ```temp``` but flattens the output to a list of nodes on every layer: [[Node]].
+
  - ```diff  <- createMem jgraph (p --> v)```
 
    ```createMem``` adds/deletes edges if nodes have been added/deleted from the layers.
 
+Query Processing
+----------------
+
+All databases have a strategy how to evaluate a query [efficiently](https://en.wikipedia.org/wiki/Query_optimization). Our strategy is implemented [here](https://github.com/tkvogt/judy-graph-db/blob/54a41b25c516cf232c3364301285444ec91d1cc8/src/JudyGraph/Cypher.hs#L574-L669).
+
+Sketch of how this works:
+ - Differentiate three complexity classes for node specifiers:
+    - small: Nodes directly given
+    - middle: label(s) given
+    - big: any node
+
+ - Search for the smallest node specifier (left to right)
+ - Evaluate a node layer and see if node sets on the left or right are smaller.
+   Then calculate the smaller node set by visiting the adjacent edges.
+ - Repeat until all node/edge specifiers are evaluated
+
 Examples
 ========
+
 In the first example we show how to use node attribute bits an how to use every bit of a 32 bit edge.
 The second example explains why we needed an extra graph (EnumGraph) to enumerate all child edges.
 
