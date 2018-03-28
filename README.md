@@ -38,7 +38,8 @@ Most databases take away this control. For example they talk about [warming up](
 Judy Arrays
 ===========
 
-Judy arrays are a key-value storage that promises very little cache misses when the key indexes are near to each other: [Quote](http://www.nothings.org/computer/judy/): "If your data is often sequential, or approximately sequential (e.g. an arithmetic sequence stepping by 64), Judy might be the best data structure to use". This obviously means that only the lowest bits should change in the innermost loop.
+Judy arrays are a key-value storage that promises very little cache misses when the key indexes are near to each other (They form the small/red structure): [Quote](http://www.nothings.org/computer/judy/): "If your data is often sequential, or approximately sequential (e.g. an arithmetic sequence stepping by 64), Judy might be the best data structure to use". This obviously means that only the lowest bits should change in the innermost loop.
+
 In a lot of graph algorithms you take a node, then you want to do something with all edges of a certain label (setting the edge attr bits in the lower image). Iterating all these edges is done with lowest bits of the 64bit keys, called edge enum.
 We use typeclasses to freely set the size of attr and enum bits to adapt this structure to your needs.
 
@@ -159,7 +160,7 @@ Node Specifiers
 ---------------
 
 Nodes can be specified
- - directly: ```node (nodes32 [0,1])```
+ - directly with Word32s: ```node (nodes32 [0,1])```
  - as nodes in several labels: ```node (labels [ISSUE, PULL_REQUEST])```
  - as all nodes: ```node anyNode```
 
@@ -177,7 +178,8 @@ edge (attr KNOWS) (attr LOVES) (several 1…3)
  - ```(attr LABEL)``` follows all LABEL-edges, adding ```attr LABEL_2``` means that these edges are also followed
  - ```(orth LABEL)``` This had to be introduced to allow the ```|``` in ```(m)<-[:KNOWS|:LOVES]-(n)```.
 It can only be applied to labels whose bit represenation is orthogonal. Imagine this like vectors in vector space that form a base. And now we have a convenient notation to follow all combinations.
-   For example as we encode labels with binary: ```LABELA = 0b001, LABELB = 0b010, LABELC = 0b100```
+
+   For example as we encode labels with binary: ```LABELA = 0b001, LABELB = 0b010, LABELC = 0b100```.
    Now ```(orth LABELA) (orth LABELB)``` creates the 2²-1 attrs: 0b010, 0b100, 0b110 (leaving away 0b000)
    and ```(orth LABELA) (orth LABELB) (orth LABELC)``` creates the 2³-1 attrs:
    0b001, 0b010, 0b011, 0b100, 0b101, 0b110, 0b111 (leaving away 0b000). As you can see you can't use too many ```orth``` arguments.
