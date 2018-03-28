@@ -40,7 +40,7 @@ Judy Arrays
 
 Judy arrays are a key-value storage that promises very little cache misses when the key indexes are near to each other (They form the small/red structure): [Quote](http://www.nothings.org/computer/judy/): "If your data is often sequential, or approximately sequential (e.g. an arithmetic sequence stepping by 64), Judy might be the best data structure to use". This obviously means that only the lowest bits should change in the innermost loop.
 
-In a lot of graph algorithms you take a node, then you want to do something with all edges of a certain label (setting the edge attr bits in the lower image). Iterating all these edges is done with lowest bits of the 64bit keys, called edge enum.
+In a lot of graph algorithms you take a node, then you want to do something with all edges of a certain label (setting the edge attr bits in the lower image). Iterating all these edges is done with the lowest bits of the 64bit keys, called edge enum.
 We use typeclasses to freely set the size of attr and enum bits to adapt this structure to your needs.
 
 <img src="doc/judy.svg" width="500">
@@ -180,9 +180,14 @@ edge (attr KNOWS) (attr LOVES) (several 1…3)
 It can only be applied to labels whose bit represenation is orthogonal. Imagine this like vectors in vector space that form a base. And now we have a convenient notation to follow all combinations.
 
    For example as we encode labels with binary: ```LABELA = 0b001, LABELB = 0b010, LABELC = 0b100```.
+   
    Now ```(orth LABELA) (orth LABELB)``` creates the 2²-1 attrs: 0b010, 0b100, 0b110 (leaving away 0b000)
+   
    and ```(orth LABELA) (orth LABELB) (orth LABELC)``` creates the 2³-1 attrs:
-   0b001, 0b010, 0b011, 0b100, 0b101, 0b110, 0b111 (leaving away 0b000). As you can see you can't use too many ```orth``` arguments.
+   
+   0b001, 0b010, 0b011, 0b100, 0b101, 0b110, 0b111 (leaving away 0b000).
+
+   As you can see you can't use too many ```orth``` arguments.
  - ```(where_ filt)``` This is like the WHERE you know from SQL or Cypher. The only difference to Cypher is that it only applies to one edge specifier. If the WHERE should be applied globally on several edge specifiers, you have to do this calculation yourself. TODO: Example
  - ```(several 1…3)``` Not implemented yet. But should be equivalent to ```(m)-[*1..3]->(n)``` in Neo4j.
 
@@ -234,7 +239,7 @@ For the nodes we use:
 For the edges we divide the space into a table of cells that contain nodes:
  - 12 bits for x-coordinate, amother 12 bits for y-coordinate. This means 4096x4096 cells. The 8 bits rest is used to store up to 254 nodes in every cell.
 
-Assuming an even distribution this can hold a maximum of 4096x4096x254 x (8+4) bytes= ~ 52 GB, which is probably more than what fits into the memory of current machines. So the limits are not the 32 bits, but the amount of total nodes and an uneven distribution.
+Assuming an even distribution this can hold a maximum of 4096x4096x254 x (8+4) bytes= ~ 52 GB, which is more than what fits into the memory of current affordable machines. So the limits are not the 32 bits, but the amount of total nodes and an uneven distribution.
 In the cells there are 254 32-bit values, which enode two float values for (x,y)-coordinates, followed by a 32-bit node index.
 
 Search Engine
