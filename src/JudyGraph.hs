@@ -31,7 +31,7 @@ module.
 -}
 module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node(..), Edge(..),
       -- * Construction
-      emptyJ, emptyE, fromList, fromListJ, fromListE,
+      ComplexGraph(..), emptyJ, emptyE, fromList, fromListJ, fromListE, insertCSVEdgeStream,
       insertNode, insertNodes, insertNodeLines, insertNodeEdge, insertNodeEdges, union,
       -- * Deletion
       deleteNode, deleteNodes, deleteEdge,
@@ -69,6 +69,7 @@ import           Data.Word(Word8, Word16, Word32)
 import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..),
                   NodeAttribute(..), EdgeAttribute(..), EdgeAttr32, Node, Edge,
                   RangeStart, emptyJ, emptyE, fromList, fromListJ, fromListE, isNull,
+                  insertCSVEdgeStream,
                   buildWord64, nodeWithLabel, nodeWithMaybeLabel, updateNodeEdges,
                   insertNodeEdges, insertNodeLines,
                   deleteNode, deleteEdge,
@@ -289,20 +290,20 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) 
          Table ComplexGraph nl el (CypherNode nl el) where
   table graph cypherNode
       | null (cols0 cypherNode) =
-          do evalN <- evalNode graph (CypherNode (attrN cypherNode) [])
-             evalToTable graph [CN True evalN]
+          do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+             evalToTable graph [CN (CypherNode a n True)]
       | otherwise = evalToTable graph (reverse (cols0 cypherNode))
 
   temp graph cypherNode
       | null (cols0 cypherNode) =
-          do evalN <- evalNode graph (CypherNode (attrN cypherNode) [])
-             return [CN False evalN]
+          do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+             return [CN (CypherNode a n False)]
       | otherwise = fmap (map switchEvalOff . Map.elems . fst)
                          (runOn graph False emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols0 cypherNode)
 
   createMem graph cypherNode
-      | null (cols0 cypherNode) = return (([],[]), ([],[])) -- TODO
+      | null (cols0 cypherNode) = return (GraphDiff [] [] [] []) -- TODO
       | otherwise = fmap snd (runOn graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols0 cypherNode)
 
@@ -318,7 +319,7 @@ instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) 
     where comps = reverse (cols1 cypherEdge)
 
   createMem graph cypherEdge
-      | null (cols1 cypherEdge) = return (([],[]), ([],[]))
+      | null (cols1 cypherEdge) = return (GraphDiff [] [] [] [])
       | otherwise = fmap snd (runOn graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols1 cypherEdge)
 

@@ -184,7 +184,7 @@ class EdgeAttribute el where
   --   e.g. unicode leaves 10 bits of the 32 bits unused, that could be used for the direction 
   -- of the edge, if its a right or left edge in a binary tree, etc.
 
-    addCsvLine :: (NodeAttribute nl, Show nl) =>
+    addCsvLine :: (NodeAttribute nl, Enum nl, Show nl) =>
                   Map String Word32 -- ^ A map for looking up nodes by their name
               -> JGraph nl el -- ^ A graph
               -> [String]    -- ^ A string for each element of the line
@@ -513,8 +513,9 @@ insertNE nodeEdges j = do
 -- Query
 
 -- | return a single node
-adjacentNodeByAttr :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
-                       JGraph nl el -> Node -> el -> IO (Maybe Node)
+adjacentNodeByAttr :: (GraphClass graph nl el,
+                       NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
+                       graph nl el -> Node -> el -> IO (Maybe Node)
 adjacentNodeByAttr jgraph node el =
     J.lookup key j
   where
@@ -532,8 +533,9 @@ adjacentNodeByAttr jgraph node el =
 -- same attribute can be retrieved with a calculated index and a judy lookup.
 -- Eg you have 100.000 edges and 10 edges with a certain attribute, there are only 11 lookups
 -- instead of 100.000 with other libraries.
-adjacentNodesByAttr :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
-                       JGraph nl el -> Node -> el -> IO [(EdgeAttr32, Node)]
+adjacentNodesByAttr :: (GraphClass graph nl el,
+                        NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
+                       graph nl el -> Node -> el -> IO [(EdgeAttr32, Node)]
 adjacentNodesByAttr jgraph node el = do
     n <- J.lookup key j
     maybe (return []) (lookupJudyNodes j node attr 1) n
@@ -575,8 +577,8 @@ nodeWithMaybeLabel node (Just nl) = node .|. (snd (fastNodeAttr nl))
 --
 --   Because every range has a standard label, return the label
 --   that belongs to the node
-nodeLabel :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
-             JGraph nl el -> Node -> nl
+nodeLabel :: (GraphClass graph nl el, NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
+             graph nl el -> Node -> nl
 nodeLabel jgraph node = nl (ranges jgraph)
   where nl rs | (length rs >= 2) &&
                 node >= fst (NonEmpty.head rs) &&
