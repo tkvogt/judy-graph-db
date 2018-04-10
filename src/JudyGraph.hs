@@ -46,7 +46,7 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node(..), Edge(..),
       -- * Query Components
       CypherComp(..), CypherNode(..), CypherEdge(..),
       -- * Query Evaluation
-      Table(..), GraphCreateReadUpdate(..),
+      GraphCreateReadUpdate(..),
       -- * Setting of Attributes, Labels,...
       Attr(..), LabelNodes(..), 
       -- * type classes for translation into bits
@@ -287,7 +287,7 @@ lookupEdge graph (n0,n1) = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelM
 --------------------------------------------------------------------------------------------
 
 instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
-         Table ComplexGraph nl el (CypherNode nl el) where
+         GraphCreateReadUpdate ComplexGraph nl el (CypherNode nl el) where
   table graph cypherNode
       | null (cols0 cypherNode) =
           do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
@@ -307,8 +307,9 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) 
       | otherwise = fmap snd (runOn graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols0 cypherNode)
 
+
 instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) =>
-         Table ComplexGraph nl el (CypherEdge nl el) where
+         GraphCreateReadUpdate ComplexGraph nl el (CypherEdge nl el) where
   table graph cypherEdge | null (cols1 cypherEdge) = return []
                          | otherwise = evalToTable graph (reverse (cols1 cypherEdge))
 
@@ -322,4 +323,5 @@ instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) 
       | null (cols1 cypherEdge) = return (GraphDiff [] [] [] [])
       | otherwise = fmap snd (runOn graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols1 cypherEdge)
+
 

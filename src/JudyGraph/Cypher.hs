@@ -26,7 +26,7 @@ module JudyGraph.Cypher(
          -- * Query Components
          CypherComp(..), CypherNode(..), CypherEdge(..),
          -- * Query Evaluation
-         Table(..), GraphCreateReadUpdate(..), NE(..),
+         GraphCreateReadUpdate(..), NE(..),
          -- * Setting of Attributes, Labels,...
          NAttr(..), Attr(..), edge, node, attr, where_, several, (…),
          LabelNodes(..),
@@ -144,17 +144,6 @@ data (NodeAttribute nl, EdgeAttribute el) => CypherEdge nl el =
     , evaluatedE :: Bool
     }
 
-data CypherNodeG nl el =
-  CypherNodeG { attrG :: [NAttr] -- ^Attribute: Highest bits of the 32 bit value
-              , graphN :: EnumGraph nl el
-              }
-
-data CypherEdgeG nl el =
-  CypherEdgeG { attrGE :: [Attr] -- ^Attribute: Highest bits of the 32 bit value
-              , edgeRestrG :: Maybe (Word32 -> Maybe (Map (Node,Node) [el]) -> Bool)
-              , graphE :: EnumGraph nl el
-              }
-
 instance (NodeAttribute nl, EdgeAttribute el) => Show (CypherNode nl el) where 
   show (CypherNode attr _ _) = "\nN " ++ show attr
 
@@ -162,8 +151,8 @@ instance (NodeAttribute nl, EdgeAttribute el) => Show (CypherEdge nl el) where
   show (CypherEdge attr _ _ _) = "\nE " ++ show attr
 
 data NAttr = AllNodes
-           | Label [Int]
-           | Nodes [Node]
+           | Label  [Int]
+           | Nodes  [Node]
            | Nodes2 [[Node]]
            | Nodes3 [[[Node]]]
            | Nodes4 [[[[Node]]]]
@@ -348,6 +337,7 @@ genAttrs m vs | null (eFilter vs) = genAttrs
     sp (a:as) es = (sp as (0:es)) ++
                    (sp as (a:es))
 
+
 extractVariants :: [Attr] -> AttrVariants
 extractVariants vs = variants (AttrVariants [] [] [] []) vs
   where
@@ -424,11 +414,11 @@ instance Show nl => Show (NE nl) where
   show (NE es) = "E [" ++ (intercalate "," (map showHex es)) ++ "]"
 
 
-class Table graph nl el a where
-  -- | Evaluate the query to a table
+class GraphCreateReadUpdate graph nl el a where
+  -- | Evaluate the query to a flattened table (every column a list of nodes)
   table :: graph nl el -> a -> IO [NE nl]
 
-  -- | The result is evaulated but can be reused
+  -- | The result is evaulated to nested lists and can be reused
   temp :: graph nl el -> a -> IO [CypherComp nl el]
 
   -- | Updates the nodeEdges and returns the changes.
@@ -438,6 +428,12 @@ class Table graph nl el a where
   -- | Updates the nodeEdges, return diffs, and write changelogs for the db files
 --create :: EnumGraph nl el -> FilePath -> a
 --          -> IO ((DeleteNodes, NewNodes), (DeleteEdges, NewEdges))
+
+  -- | The result is a graph
+  graphQuery :: graph nl el -> a -> IO (graph nl el)
+
+  -- | A graph that already contains nodes with labels is changed in its edges
+  graphCreate :: graph nl el -> a -> IO (graph nl el)
 
 
 data GraphDiff = GraphDiff { diffDelNodes :: DeleteNodes
@@ -456,7 +452,7 @@ type DeleteEdges = [(NodeEdge,Node)]
 type NewEdges    = [NodeEdge]
 
 instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
-         Table EnumGraph nl el (CypherNode nl el) where
+         GraphCreateReadUpdate EnumGraph nl el (CypherNode nl el) where
   table graph cypherNode
       | null (cols0 cypherNode) =
           do (CypherNode a c b) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
@@ -476,8 +472,16 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) 
       | otherwise = fmap snd (runOn graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols0 cypherNode)
 
+  graphQuery graph cypherNode | null (cols0 cypherNode) =
+          do (CypherNode a c b) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+             evalToGraph graph [CN (CypherNode a c True)]
+                              | otherwise = evalToGraph graph (reverse (cols0 cypherNode))
+
+  graphCreate gr cypherNode = return gr
+
+
 instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) =>
-         Table EnumGraph nl el (CypherEdge nl el) where
+         GraphCreateReadUpdate EnumGraph nl el (CypherEdge nl el) where
   table graph cypherEdge | null (cols1 cypherEdge) = return []
                          | otherwise = evalToTable graph (reverse (cols1 cypherEdge))
 
@@ -491,6 +495,11 @@ instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) 
       | null (cols1 cypherEdge) = return (GraphDiff [] [] [] [])
       | otherwise = fmap snd (runOn graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols1 cypherEdge)
+
+  graphQuery graph cypherEdge | null (cols1 cypherEdge) = empty (rangesE graph)
+                              | otherwise = evalToGraph graph (reverse (cols1 cypherEdge))
+
+  graphCreate gr cypherEdge = return gr
 
 
 switchEvalOff (CN (CypherNode a c b))   = CN (CypherNode a c False)
@@ -745,34 +754,11 @@ overlaps jgraph nes =
 
 
 ----------------------------------------------------------------
--- Creating a graph -- TODO implement
+-- Creating a graph TODO
 
-class GraphCreateReadUpdate nl el a where
-  graphQuery :: EnumGraph nl el -> a -> IO (EnumGraph nl el)
-
-  -- a graph that already contains nodes with labels
-  graphCreate :: EnumGraph nl el -> a -> IO (EnumGraph nl el)
-
-instance (NodeAttribute nl, EdgeAttribute el) =>
-         GraphCreateReadUpdate nl el (CypherNodeG nl el) where
-  graphQuery gr cypherNode = return (graphN cypherNode)
-  graphCreate gr cypherNode = return gr
-
-instance (NodeAttribute nl, EdgeAttribute el) =>
-         GraphCreateReadUpdate nl el (CypherEdgeG nl el) where
-  graphQuery gr cypherEdge = return (graphE cypherEdge)
-  graphCreate gr cypherEdge = return gr
-
-instance (NodeAttribute nl, EdgeAttribute el) =>
-         QueryNE (CypherNodeG nl el) (CypherEdgeG nl el) where
-  (--|) node edge = edge
-  (|--) edge node = node
-  (<--|) node edge = edge
-  (|-->) edge node = node
-
-instance (NodeAttribute nl, EdgeAttribute el) =>
-         QueryN (CypherNodeG nl el) where
-  (~~) node0 node1 = node0
-  (-->) node0 node1 = node0
-  (<--) node0 node1 = node0
+evalToGraph :: (Eq nl, Show nl, Show el, Enum nl,
+                NodeAttribute nl, EdgeAttribute el, GraphClass graph nl el) =>
+                graph nl el -> [CypherComp nl el] -> IO (graph nl el)
+evalToGraph graph comps =
+  do return graph
 
