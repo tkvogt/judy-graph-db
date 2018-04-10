@@ -1,6 +1,6 @@
-{-# LANGUAGE OverloadedStrings, FlexibleInstances, MultiParamTypeClasses, FunctionalDependencies,
-             UnicodeSyntax, TypeOperators, GeneralizedNewtypeDeriving, AllowAmbiguousTypes,
-             DatatypeContexts #-}
+{-# LANGUAGE OverloadedStrings, FlexibleInstances, MultiParamTypeClasses,
+             FunctionalDependencies, UnicodeSyntax, TypeOperators,
+             GeneralizedNewtypeDeriving, AllowAmbiguousTypes, DatatypeContexts #-}
 -- {-# TypeSynonymInstances, ScopedTypeVariables #-}
 --, InstanceSigs, ScopedTypeVariables #-}
 {-|
@@ -45,6 +45,7 @@ import           Data.List.NonEmpty(toList)
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict(Map)
 import           Data.Maybe(fromJust, isJust, isNothing, catMaybes)
+import           Data.Semigroup
 import qualified Data.Set as Set
 import           Data.Set(Set)
 import qualified Data.Text as T
@@ -252,13 +253,14 @@ appl f n = CypherNode (map change (attrN n)) (cols0 n) True
 -- edge
 
 -- | A type annotation, equivalent to the first argument, but in variable argument 
---   contexts, gives a clue as to what return type is expected (not actually enforced).
+--   contexts, gives a clue as to what return type is expected (not actually
+--   enforced).
 type a :-> t = a
 
 edge :: EdgeAttrs as => as :-> CypherEdge nl el
 edge = edgeAttrs mempty
 
-newtype EdgeAttr = EdgeAttr [Attr] deriving Monoid
+newtype EdgeAttr = EdgeAttr [Attr] deriving (Monoid, Semigroup)
 
 class EdgeAttrs t where
   edgeAttrs :: EdgeAttr -> t
@@ -275,7 +277,7 @@ instance (NodeAttribute nl, EdgeAttribute el) => EdgeAttrs (CypherEdge nl el) wh
 node :: NodeAttrs as => as :-> CypherNode nl el
 node = nodeAttrs mempty
 
-newtype NodeAttr = NodeAttr [NAttr] deriving Monoid
+newtype NodeAttr = NodeAttr [NAttr] deriving (Monoid, Semigroup)
 
 class NodeAttrs t where
   nodeAttrs :: NodeAttr -> t
@@ -326,8 +328,8 @@ data AttrVariants =
 --
 --  * X is Set Product, in this example there would be (2²-1) * 3 = 9 attributes
 genAttrs :: Map (Node,Node) [Word32] -> AttrVariants -> [Word32]
-genAttrs m vs | null (sev vs) = genAttrs
-              | otherwise = filterBy (head (sev vs)) genAttrs
+genAttrs m vs | null (eFilter vs) = genAttrs
+              | otherwise = filterBy (head (eFilter vs)) genAttrs
   where
     filterBy (EFilterBy f) = filter (f m)
     genAttrs | null oAttrs = aAttrs
@@ -350,9 +352,9 @@ extractVariants :: [Attr] -> AttrVariants
 extractVariants vs = variants (AttrVariants [] [] [] []) vs
   where
     variants v [] = v
-    variants v ((Attr e):rest)        = variants (v { attrs = (Attr e) : (attrs v)}) rest
-    variants v ((Orth e):rest)        = variants (v { orths = (Orth e) : (orths v)}) rest
-    variants v ((EFilterBy f):rest)   = variants (v { eFilter = (EFilterBy f) : (eFilter v)}) rest
+    variants v ((Attr e):rest) = variants (v { attrs = (Attr e) : (attrs v)}) rest
+    variants v ((Orth e):rest) = variants (v { orths = (Orth e) : (orths v)}) rest
+    variants v ((EFilterBy f):rest) = variants (v { eFilter = (EFilterBy f) : (eFilter v)}) rest
     variants v ((Several i0 i1):rest) = variants (v { sev = (Several i0 i1) : (sev v)}) rest
 
 
