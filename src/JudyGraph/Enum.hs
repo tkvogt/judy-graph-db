@@ -23,7 +23,7 @@ module JudyGraph.Enum (
     deleteNodeEdgeListJ, deleteNodeEdgeListE,
     -- * Query
     adjacentNodesByAttr, adjacentNodeByAttr, adjacentNodesByIndex,
-    lookupJudyNodes, adjacentEdgeCount,
+    lookupJudyNodes, adjacentEdgeCount, allChildEdges, allChildNodes, allChildNodesFromEdges,
     -- * Handling Labels
     nodeWithLabel, nodeWithMaybeLabel, nodeLabel,
     hasNodeAttr, extrAttr, newNodeAttr, bitmask, invBitmask,
@@ -34,6 +34,7 @@ module JudyGraph.Enum (
 
 import           Control.Monad
 import qualified Data.ByteString.Char8 as C
+import qualified Data.ByteString.Streaming as B
 import qualified Data.Char8 as C
 import qualified Data.Judy as J
 import           Data.List.NonEmpty(NonEmpty(..))
@@ -42,6 +43,10 @@ import           Data.Map.Strict(Map)
 import           Data.Maybe(fromJust, isJust, isNothing, maybe, catMaybes, fromMaybe)
 import           Data.Text(Text)
 import           Data.Word(Word32)
+import           Streaming (Of, Stream, hoist)
+import           Streaming.Cassava as S
+import qualified Streaming.Prelude as S
+import qualified Streaming.With as S
 import           JudyGraph.FastAccess
 import Debug.Trace
 
@@ -114,6 +119,33 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     n1Key = maybe n1 (nodeWithLabel n1) nl1
 
 
+  -- | In a dense graph the edges might be too big to be first stored in a list before being
+  --   added to the judy graph. Therefore the edges are streamed from a .csv-file line by
+  --   line and then added to the judy-graph. A function is passed that can take a line (a list
+  --   of strings) and add it to the graph.
+  insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
+                EnumGraph nl el -> FilePath ->
+               (EnumGraph nl el -> [String] -> IO (EnumGraph nl el)) -> IO (EnumGraph nl el)
+  insertCSVEdgeStream graph file newEdge = do
+    a <- S.withBinaryFileContents file
+                            ((S.foldM (insertCSVEdge newEdge) (return graph) return) . dec)
+    return (fst (S.lazily a))
+   where
+    dec :: B.ByteString IO () ->
+           Stream (Of (Either CsvParseException [String]))
+                  IO
+                  (Either (CsvParseException, B.ByteString IO ()) ())
+    dec = S.decodeWithErrors S.defaultDecodeOptions NoHeader
+
+
+  -- | A helper function for insertCSVEdgeStream
+  insertCSVEdge :: (NodeAttribute nl, EdgeAttribute el) =>
+               (EnumGraph nl el -> [String] -> IO (EnumGraph nl el))
+             -> EnumGraph nl el -> Either CsvParseException [String] -> IO (EnumGraph nl el)
+  insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
+  insertCSVEdge newEdge g (Left message)   = return g
+
+
   union g0 g1 = do
     ((EnumGraph bg be br bn), (EnumGraph sg se sr sn)) <- biggerSmaller g0 g1
     nodeEs   <- getNodeEdges sg
@@ -141,7 +173,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     key = buildWord64 node attr
     j = judyGraphE jgraph
 
-  -- | deletes all node-edges that contain this node, because the judy array only stores node-edges
+  -- | deletes all node-edges that contain this node, because the judy array only stores
+  --   node-edges
   deleteNode jgraph node = do
   --    es <- allChildEdges jgraph node
     let nodeEdges = map (buildWord64 node) [] -- es
@@ -175,40 +208,46 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                                  | otherwise = False
          filterNode _ = False
 
-  -- | The enumGraph enumerates all child edges
-  -- and maps to the second 32 bit of the key of all nodeEdges
-  allChildEdges jgraph node = do
-    edgeCount <- J.lookup edgeCountKey mj
-    let ec = fromMaybe 0 edgeCount
-    let enumKeys = map (buildWord64 node) [1..ec]
-    edges <- mapM (\key -> J.lookup key mj) enumKeys
-    return (-- Debug.Trace.trace ("ec " ++ show enumKeys) $
-            catMaybes edges)
-   where
-    edgeCountKey = buildWord64 node 0
-    mj = enumGraph jgraph
-
-
-  -- | all adjacent child nodes
-  allChildNodes jgraph node = do
-    edges <- allChildEdges jgraph node
-    allChildNodesFromEdges jgraph node edges
-
-
-  -- | To avoid the recalculation of edges
-  allChildNodesFromEdges jgraph node edges = do
-    let keys = map (buildWord64 node) edges
-    nodes <- mapM (\key -> J.lookup key j) keys
-    return (-- Debug.Trace.trace ("ec " ++ show enumKeys) $
-            catMaybes nodes)
-   where
-    j = judyGraphE jgraph
-
-
   nodeCount graph = nodeCountE graph
   ranges :: Enum nl => EnumGraph nl el -> NonEmpty (RangeStart, nl)
   ranges graph = rangesE graph
   judyGraph graph = judyGraphE graph
+
+
+-- | The enumGraph enumerates all child edges
+-- and maps to the second 32 bit of the key of all nodeEdges
+allChildEdges :: (NodeAttribute nl, EdgeAttribute el) =>
+                 EnumGraph nl el -> Node -> IO [Word32]
+allChildEdges jgraph node = do
+  edgeCount <- J.lookup edgeCountKey mj
+  let ec = fromMaybe 0 edgeCount
+  let enumKeys = map (buildWord64 node) [1..ec]
+  edges <- mapM (\key -> J.lookup key mj) enumKeys
+  return (-- Debug.Trace.trace ("ec " ++ show enumKeys) $
+          catMaybes edges)
+ where
+  edgeCountKey = buildWord64 node 0
+  mj = enumGraph jgraph
+
+
+-- | all adjacent child nodes
+allChildNodes :: (NodeAttribute nl, EdgeAttribute el) =>
+                 EnumGraph nl el -> Node -> IO [Word32]
+allChildNodes jgraph node = do
+  edges <- allChildEdges jgraph node
+  allChildNodesFromEdges jgraph node edges
+
+
+-- | To avoid the recalculation of edges
+allChildNodesFromEdges :: (NodeAttribute nl, EdgeAttribute el) =>
+                          EnumGraph nl el -> Node -> [Word32] -> IO [Word32]
+allChildNodesFromEdges jgraph node edges = do
+  let keys = map (buildWord64 node) edges
+  nodes <- mapM (\key -> J.lookup key j) keys
+  return (-- Debug.Trace.trace ("ec " ++ show enumKeys) $
+          catMaybes nodes)
+ where
+  j = judyGraphE jgraph
 
 
 emptyE :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
@@ -271,7 +310,7 @@ insertEnumEdge jgraph n0Key edgeAttr = do
     J.insert enumKey edgeAttr mj
   where
     mj = enumGraph jgraph
-    edgeCountKey = buildWord64 n0Key 0 -- the enumgraph has the number of adjacent edges at index 0
+    edgeCountKey = buildWord64 n0Key 0 -- the enumgraph has the # of adjacent edges at index 0
 
 
 ------------------------------------------------------------------------------------------

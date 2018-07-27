@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, MultiParamTypeClasses #-}
 module Main where
 
 import           Data.Bits(shift)
@@ -10,6 +10,7 @@ import           Data.Word(Word8, Word16, Word32)
 import JudyGraph
 import qualified JudyGraph as J
 import qualified JudyGraph.Cypher as Cy
+import JudyGraph.FastAccess(AddCSVLine(..))
 
 main :: IO ()
 main = do
@@ -91,7 +92,10 @@ instance EdgeAttribute EdgeLabel where
   fastEdgeAttrBase EdgeForward = 0x80000000
 
   edgeForward = Just EdgeForward
-  addCsvLine _ graph _ = return graph
+
+
+instance AddCSVLine EnumGraph NodeLabel EdgeLabel where
+  addCsvLine m graph [vocIndex, str] = return graph
 
 ---------------------------------------------------------------------------------------------
 
@@ -200,7 +204,6 @@ instance EdgeAttribute EdgeLabel2 where
     fastEdgeAttr PartOf = (8,0x1000001) -- take the 8 highest bits
     fastEdgeAttrBase PartOf = 0x1000000
     edgeForward = Nothing
-    addCsvLine _ graph _ = return graph
 
 ---------------------------------------------
 {-

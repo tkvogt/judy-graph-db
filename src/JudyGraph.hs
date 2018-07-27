@@ -79,7 +79,8 @@ import JudyGraph.Cypher
 import Debug.Trace
 
 
--- | If the graph contains data that doesn't fit into 32 bit node/edges and there is enough memory
+-- | If the graph contains data that doesn't fit into 32 bit node/edges and there is
+--   enough memory
 data (NodeAttribute nl, EdgeAttribute el) =>
      ComplexGraph nl el = ComplexGraph {
   judyGraphC :: Judy, -- ^ A Graph with 32 bit keys on the edge
@@ -231,8 +232,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     j = judyGraphC jgraph
 
 
-  allChildEdges jgraph node = do
-    return []
+--  allChildEdges jgraph node = do
+--    return []
 
 
   filterEdgesTo jgraph nodeEdges f = do
@@ -291,37 +292,51 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) 
   table graph cypherNode
       | null (cols0 cypherNode) =
           do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
-             evalToTable graph [CN (CypherNode a n True)]
-      | otherwise = evalToTable graph (reverse (cols0 cypherNode))
+             evalToTableC graph [CN (CypherNode a n True)]
+      | otherwise = evalToTableC graph (reverse (cols0 cypherNode))
 
   temp graph cypherNode
       | null (cols0 cypherNode) =
           do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
              return [CN (CypherNode a n False)]
       | otherwise = fmap (map switchEvalOff . Map.elems . fst)
-                         (runOn graph False emptyDiff (Map.fromList (zip [0..] comps)))
+                         (runOnC graph False emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols0 cypherNode)
 
   createMem graph cypherNode
       | null (cols0 cypherNode) = return (GraphDiff [] [] [] []) -- TODO
-      | otherwise = fmap snd (runOn graph True emptyDiff (Map.fromList (zip [0..] comps)))
+      | otherwise = fmap snd (runOnC graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols0 cypherNode)
 
 
 instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) =>
          GraphCreateReadUpdate ComplexGraph nl el (CypherEdge nl el) where
   table graph cypherEdge | null (cols1 cypherEdge) = return []
-                         | otherwise = evalToTable graph (reverse (cols1 cypherEdge))
+                         | otherwise = evalToTableC graph (reverse (cols1 cypherEdge))
 
   temp graph cypherEdge
       | null (cols1 cypherEdge) = return []
       | otherwise = fmap (map switchEvalOff . Map.elems . fst)
-                         (runOn graph False emptyDiff (Map.fromList (zip [0..] comps)))
+                         (runOnC graph False emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols1 cypherEdge)
 
   createMem graph cypherEdge
       | null (cols1 cypherEdge) = return (GraphDiff [] [] [] [])
-      | otherwise = fmap snd (runOn graph True emptyDiff (Map.fromList (zip [0..] comps)))
+      | otherwise = fmap snd (runOnC graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols1 cypherEdge)
+
+
+-- TODO
+evalToTableC :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
+                ComplexGraph nl el -> [CypherComp nl el] -> IO [NE nl]
+evalToTableC graph comps = return []
+
+-- TODO
+runOnC :: (Eq nl, Show nl, Show el, Enum nl,
+          NodeAttribute nl, EdgeAttribute el) =>
+         ComplexGraph nl el -> Bool -> GraphDiff ->
+         Map Int (CypherComp nl el) -> IO (Map Int (CypherComp nl el), GraphDiff)
+runOnC graph create (GraphDiff dns newns des newEs) comps =
+  return (Map.empty, GraphDiff dns newns des newEs)
 
 
