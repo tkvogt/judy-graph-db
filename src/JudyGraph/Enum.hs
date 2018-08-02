@@ -47,6 +47,7 @@ import           Streaming (Of, Stream, hoist)
 import           Streaming.Cassava as S
 import qualified Streaming.Prelude as S
 import qualified Streaming.With as S
+import           System.IO.Unsafe(unsafePerformIO)
 import           JudyGraph.FastAccess
 import Debug.Trace
 
@@ -62,6 +63,22 @@ data (NodeAttribute nl, EdgeAttribute el) =>
   rangesE :: NonEmpty (RangeStart, nl), -- ^ a nonempty list with an attribute for every range
   nodeCountE :: Word32
 }
+
+
+
+instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
+         Show (EnumGraph nl el) where
+  show (EnumGraph judyGraphE enumGraph rangesE nodeCountE) =
+         "\ndigraph graphviz {\n"++
+         concat (zipWith3 line nodeOrigins edges nodeDests) ++
+         "}\n"
+    where
+      nodeOrigins = map extractFirstWord32 $
+                    unsafePerformIO (J.keys  (unsafePerformIO (J.freeze judyGraphE)))
+      edges = map extractSecondWord32 $
+              unsafePerformIO (J.keys  (unsafePerformIO (J.freeze judyGraphE)))
+      nodeDests = unsafePerformIO (J.elems (unsafePerformIO (J.freeze judyGraphE)))
+      line or e dest = show or ++ " -> " ++ show dest ++" [ label = \""++ show e ++"\" ];\n"
 
 ------------------------------------------------------------------------------------------------
 
