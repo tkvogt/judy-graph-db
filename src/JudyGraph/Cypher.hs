@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, FlexibleInstances, MultiParamTypeClasses,
              FunctionalDependencies, UnicodeSyntax, TypeOperators,
-             GeneralizedNewtypeDeriving, AllowAmbiguousTypes, DatatypeContexts #-}
+             GeneralizedNewtypeDeriving, AllowAmbiguousTypes #-}
 -- {-# TypeSynonymInstances, ScopedTypeVariables #-}
 --, InstanceSigs, ScopedTypeVariables #-}
 {-|

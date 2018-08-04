@@ -15,7 +15,7 @@ module JudyGraph.Enum (
     Node, Edge, NodeEdge, EdgeAttr32, RangeStart, Index, Start, End, Bits(..),
     -- * Construction
     emptyE, emptyJ, fromListJ, fromListE,
-    insertNodeEdge2, insertCSVEdgeStream, insertNodeLines,
+    insertNodeEdge2, insertNodeLines,
     updateNodeEdges, insertNE, mapNodeJ, mapNodeWithKeyJ,
     -- * Extraction
     getNodeEdges, nodeEdgesJ, nodesJ,
@@ -125,8 +125,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     let newValKey = buildWord64 n0Key (edgeAttr + if overwrite then 0 else edgeAttrCount)
     n2 <- J.lookup newValKey j
     let isEdgeNew = isNothing n2
-    when (isEdgeNew || (not overwrite)) (J.insert edgeAttrCountKey (edgeAttrCount+1) j)
-    J.insert newValKey n1Key j --(Debug.Trace.trace (show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showHex newValKey ++"("++ showHex32 n0Key ++","++ showHex32 n1Key ++")"++ showHex32 edgeAttr ++ show nl1) j)
+    when (isEdgeNew && (not overwrite)) (J.insert edgeAttrCountKey (edgeAttrCount+1) j)
+    J.insert newValKey n1Key j -- (Debug.Trace.trace (show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showHex newValKey ++"("++ showHex32 n0Key ++","++ showHex32 n1Key ++")"++ showHex32 edgeAttr ++ show nl1) j)
     if isEdgeNew || (not overwrite)
       then return (jgraph { nodeCountE = (nodeCountE jgraph) + 1}, (isEdgeNew, n1))
       else return (jgraph, (isEdgeNew, fromMaybe n1 n2))
