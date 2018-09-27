@@ -19,23 +19,22 @@ not be completely taken over, but it is very similar.
 -}
 
 module JudyGraph.Cypher(
-         -- * Cypher Query
+         -- * Cypher Query EDSL
          QueryN(..), QueryNE(..),
          -- * Cypher Query with Unicode
          (─┤),  (├─),  (<─┤),  (├─>),  (⟞⟝), (⟼),  (⟻),
          -- * Query Components
-         CypherComp(..), CypherNode(..), CypherEdge(..),
+         CypherComp(..), CypherNode(..), CypherEdge(..), appl,
          -- * Query Evaluation
          GraphCreateReadUpdate(..), NE(..),
-         -- * Setting of Attributes, Labels,...
-         NAttr(..), Attr(..), edge, node, attr, where_, several, (…),
-         LabelNodes(..),
-         -- * Unevaluated node/edge markers, 
-         anyNode, labels, nodes32,
-         -- * changing markers
-         appl,
-         -- * query evaluation
-         GraphDiff(..), runOnE, emptyDiff, switchEvalOff, evalToTableE, evalNode
+         -- * Node specifiers
+         node, anyNode, labels, nodes32, NodeAttr(..), NAttr(..),
+         -- * Edge specifiers
+         edge, attr, orth, where_, several, (…), genAttrs, extractVariants, AttrVariants(..),
+         -- * Attributes, Labels,...
+         Attr(..), LabelNodes(..),
+         -- * Query Evaluation Internals
+         evalToTableE, runOnE, evalNode, GraphDiff(..), emptyDiff, switchEvalOff
        ) where
 
 import           Control.Monad(zipWithM)
@@ -61,6 +60,18 @@ import Debug.Trace
 ----------------------------------------------------------------------
 -- Query Classes
 
+-- | Unlabeled edges
+class QueryN node where
+  -- | An undirected edge
+  (~~) :: node -> node -> node
+
+  -- | A directed edge
+  (-->) :: node -> node -> node
+
+  -- | A directed edge
+  (<--) :: node -> node -> node
+
+-- | Labeled edges
 class QueryNE node edge where
   -- | Half of an undirected edge
   (--|)  :: node -> edge -> edge
@@ -73,16 +84,6 @@ class QueryNE node edge where
 
   -- | Half of a directed edge
   (|-->) :: edge -> node -> node
-
-class QueryN node where
-  -- | An undirected edge
-  (~~) :: node -> node -> node
-
-  -- | A directed edge
-  (-->) :: node -> node -> node
-
-  -- | A directed edge
-  (<--) :: node -> node -> node
 
 infixl 7  --|
 infixl 7 |--
@@ -246,6 +247,11 @@ appl f n = CypherNode (map change (attrN n)) (cols0 n) True
 --   enforced).
 type a :-> t = a
 
+-- | Bundle several edge specifiers, eg 
+--
+-- > edge (attr Raises) (attr Closes) :: CyE
+--
+-- Type trickery allows to put as many edge specifiers('EdgeAttr') after 'edge' as you want
 edge :: EdgeAttrs as => as :-> CypherEdge nl el
 edge = edgeAttrs mempty
 
@@ -260,9 +266,12 @@ instance (EdgeAttrs r) => EdgeAttrs (EdgeAttr -> r) where
 instance (NodeAttribute nl, EdgeAttribute el) => EdgeAttrs (CypherEdge nl el) where
   edgeAttrs (EdgeAttr as) = CypherEdge as Nothing [] False
 
------------
--- node
-
+-----------------------------------------
+-- | Bundle several node specifiers, eg 
+--
+-- > node (labels [ISSUE, PULL_REQUEST]) (nodes32 [0,1])
+--
+-- Type trickery allows to put as many node specifiers('NodeAttr') after 'node' as you want
 node :: NodeAttrs as => as :-> CypherNode nl el
 node = nodeAttrs mempty
 
@@ -278,44 +287,45 @@ instance (NodeAttribute nl, EdgeAttribute el) => NodeAttrs (CypherNode nl el) wh
   nodeAttrs (NodeAttr as) = CypherNode as [] False
 
 -----------------------------------------------------
+-- edge specifiers
 -- Attributes, Labels and WHERE-restrictions
 
+-- | An Edge Attribute that can be converted to Word32. Several 'attr' mean they are all followed in a query
 attr :: EdgeAttribute el => el -> EdgeAttr
 attr el = EdgeAttr [Attr (fastEdgeAttrBase el)]
 
+-- | Short for orthogonal (think of a vector space). The same as
+--
+-- > (m)<-[:KNOWS|:LOVES]-(n)
+--
+-- in Neo4j. Instead here we would have to write
+--
+-- > edge (orth Knows) (orth Loves)
+--
+-- The 'orth' attribute is treated differently than 'attr'. All combinations of orth attributes are being generated, see 'genAttrs'.
 orth :: EdgeAttribute el => el -> EdgeAttr
 orth el = EdgeAttr [Orth (fastEdgeAttrBase el)]
 
+-- | Filtering of Attributes with a function
 where_ :: (Map (Node,Node) [Word32] -> Word32 -> Bool) -> EdgeAttr
 where_ f = EdgeAttr [EFilterBy f]
 
+-- | How often to try an edge, the same as …
 several :: Int -> Int -> EdgeAttr
 several n0 n1 = EdgeAttr [Several n0 n1]
 
-labels :: (NodeAttribute nl, Enum nl) => [nl] -> NodeAttr
-labels nodelabels = NodeAttr [Label (map fromEnum nodelabels)]
-
--- | Explicitly say which nodes to use, restricted by inbounding edges
-nodes32 :: [Word32] -> NodeAttr
-nodes32 ns = NodeAttr [Nodes ns]
-
-anyNode :: NodeAttr
-anyNode = NodeAttr [AllNodes]
-
-
-data AttrVariants =
-     AttrVariants {
-       attrs :: [Attr],
-       orths :: [Attr],
-       eFilter :: [Attr],
-       sev :: [Attr]
-     }
-
 -- | Generate Word32-edge attributes.
--- Example:
+--
+-- Let's look at an example where we define:
+--
+-- X is set product, + set union, and Vector0, Vector1, Attr0, Attr1, Attr2 are Word32
+--
 --  * (Ortho Vector0) X (Ortho Vector1) X (Attr0 + Attr1 + Attr2)
 --
---  * X is Set Product, in this example there would be (2²-1) * 3 = 9 attributes
+-- In this example there would be (2²-1) * 3 = 9 attributes. We would write in our notation:
+--
+-- > edge (orth Vector0) (orth Vector1) (attr Attr0) (attr Attr1) (attr Attr2)
+-- The order does not matter. See 'extractVariants'.
 genAttrs :: Map (Node,Node) [Word32] -> AttrVariants -> [Word32]
 genAttrs m vs | null (eFilter vs) = genAttrs
               | otherwise = filterBy (head (eFilter vs)) genAttrs
@@ -337,15 +347,40 @@ genAttrs m vs | null (eFilter vs) = genAttrs
     sp (a:as) es = (sp as (0:es)) ++
                    (sp as (a:es))
 
-
+-- | Extract the four different attrs in the given list into four separate lists
 extractVariants :: [Attr] -> AttrVariants
 extractVariants vs = variants (AttrVariants [] [] [] []) vs
   where
     variants v [] = v
-    variants v ((Attr e):rest) = variants (v { attrs = (Attr e) : (attrs v)}) rest
-    variants v ((Orth e):rest) = variants (v { orths = (Orth e) : (orths v)}) rest
-    variants v ((EFilterBy f):rest) = variants (v { eFilter = (EFilterBy f) : (eFilter v)}) rest
+    variants v ((Attr e):rest) =        variants (v { attrs = (Attr e) : (attrs v)}) rest
+    variants v ((Orth e):rest) =        variants (v { orths = (Orth e) : (orths v)}) rest
+    variants v ((EFilterBy f):rest) =   variants (v { eFilter = (EFilterBy f) : (eFilter v)}) rest
     variants v ((Several i0 i1):rest) = variants (v { sev = (Several i0 i1) : (sev v)}) rest
+
+
+----------------------------------------------------
+-- node specifiers
+
+-- | Node specifier that contains all nodes
+anyNode :: NodeAttr
+anyNode = NodeAttr [AllNodes]
+
+-- | Node specifier that contains all nodes that are in the given label classes
+labels :: (NodeAttribute nl, Enum nl) => [nl] -> NodeAttr
+labels nodelabels = NodeAttr [Label (map fromEnum nodelabels)]
+
+-- | Node specifier to explicitly say which nodes to use, restricted by inbounding edges
+nodes32 :: [Word32] -> NodeAttr
+nodes32 ns = NodeAttr [Nodes ns]
+
+
+data AttrVariants =
+     AttrVariants {
+       attrs :: [Attr],
+       orths :: [Attr],
+       eFilter :: [Attr],
+       sev :: [Attr]
+     }
 
 
 ----------------------------------------------------------------------------
@@ -427,8 +462,7 @@ class GraphCreateReadUpdate graph nl el a where
   createMem :: graph nl el -> a -> IO GraphDiff
 
   -- | Updates the nodeEdges, return diffs, and write changelogs for the db files
---create :: EnumGraph nl el -> FilePath -> a
---          -> IO ((DeleteNodes, NewNodes), (DeleteEdges, NewEdges))
+--create :: graph nl el -> FilePath -> a -> IO GraphDiff
 
   -- | The result is a graph
   graphQuery :: graph nl el -> a -> IO (graph nl el)
@@ -470,7 +504,7 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) 
     where comps = reverse (cols0 cypherNode)
 
   createMem graph cypherNode
-      | null (cols0 cypherNode) = return (GraphDiff [] [] [] []) -- TODO
+      | null (cols0 cypherNode) = return emptyDiff -- TODO
       | otherwise = fmap snd (runOnE graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols0 cypherNode)
 
@@ -494,7 +528,7 @@ instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) 
     where comps = reverse (cols1 cypherEdge)
 
   createMem graph cypherEdge
-      | null (cols1 cypherEdge) = return (GraphDiff [] [] [] [])
+      | null (cols1 cypherEdge) = return emptyDiff
       | otherwise = fmap snd (runOnE graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols1 cypherEdge)
 
@@ -510,7 +544,7 @@ switchEvalOff (CE (CypherEdge a e c b)) = CE (CypherEdge a e c False)
 emptyDiff = GraphDiff [] [] [] []
 
 -------------------------------------------------------------------------------------------
-
+-- | 
 evalToTableE :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
                 EnumGraph nl el -> [CypherComp nl el] -> IO [NE nl]
 evalToTableE graph comps =
@@ -588,7 +622,7 @@ minI n i min ((False, ECompl c):cs) = -- Debug.Trace.trace ("e " ++ show i)
                                       (minI (n+1) i min cs) -- skip edges
 
 
-unEvalCount (CN (CypherNode _ _ evaluated)) = if evaluated then 0 else 1
+unEvalCount (CN (CypherNode _ _ evaluated))   = if evaluated then 0 else 1
 unEvalCount (CE (CypherEdge _ _ _ evaluated)) = if evaluated then 0 else 1
 
 
@@ -599,6 +633,8 @@ evalComp graph (CN (CypherNode a c b)) =
   do (CypherNode a1 c1 b1) <- evalNode graph (CypherNode a c b)
      return (CN (CypherNode a1 c1 True))
 
+
+-- | Convert an abstract node specifier to a concrete node specifier (containing a list of nodes)
 evalNode :: (GraphClass graph nl el, NodeAttribute nl, EdgeAttribute el, Enum nl) =>
             graph nl el -> (CypherNode nl el) -> IO (CypherNode nl el)
 evalNode graph (CypherNode [AllNodes] c b) =

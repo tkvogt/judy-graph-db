@@ -44,17 +44,17 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node(..), Edge(..),
       -- * Cypher Query with Unicode
       (─┤),  (├─),  (<─┤),  (├─>),  (⟞⟝), (⟼),  (⟻),
       -- * Query Components
-      CypherComp(..), CypherNode(..), CypherEdge(..),
+      CypherComp(..), CypherNode(..), CypherEdge(..), appl,
       -- * Query Evaluation
-      GraphCreateReadUpdate(..),
-      -- * Setting of Attributes, Labels,...
+      GraphCreateReadUpdate(..), evalNode,
+      -- * Attributes, Labels,...
       Attr(..), LabelNodes(..), 
       -- * type classes for translation into bits
       NodeAttribute(..), EdgeAttribute(..),
-      -- * Unevaluated node/edge markers
-      anyNode, nodes32, edge, node, attr, labels, where_, several, (…),
-      -- * evaluating, changing markers
-      evalNode, appl
+      -- * Node specifiers
+      node, anyNode, labels, nodes32, NodeAttr(..), NAttr(..),
+      -- * Edge specifiers
+      edge, attr, orth, where_, several, (…), genAttrs, extractVariants, AttrVariants(..),
      ) where
 
 import           Control.Monad(foldM, when)
