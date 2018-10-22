@@ -15,8 +15,8 @@ JudyGraph uses Judy arrays as a fast key-value storage (key: 64 bit, value: 32 b
 This module contains functions that use the secondary structures 'complexNodeLabelMap' and
 'complexEdgeLabelMap' for more complex node/edge-labels that don't fit into 32 bit.
 You only have to write class instances that specify how node and edge labels are
-converted into 32 bit labels: 'NodeAttribute', 'EdgeAttribute'. This shrinking obviously has 
-to keep the information that is needed to quickly query the graph.
+converted into 32 bit labels: 'NodeAttribute', 'EdgeAttribute'. This shrinking obviously 
+has to keep the information that is needed to quickly query the graph.
 E.g. if you have e.g. 100.000 edges adjacent to a node and you
 don't want to test them all for a certain label.
 
@@ -25,11 +25,11 @@ if you can put each node/edge-label in less than 32 bit
 then use only functions in the "Graph.FastAccess" module
 
 If on the other hand there is enough space and the nodes or edges have much more info 
-then the functions in this module generate fast access node-edges with the "Graph.FastAccess"
-module.
+then the functions in this module generate fast access node-edges with the 
+"Graph.FastAccess" module.
 
 -}
-module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node(..), Edge(..),
+module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node32(..), Edge32(..), Edge,
       -- * Construction
       ComplexGraph(..), emptyJ, emptyE, fromList, fromListJ, fromListE, insertCSVEdgeStream,
       insertNode, insertNodes, insertNodeLines, insertNodeEdge, insertNodeEdges, union,
@@ -67,7 +67,7 @@ import qualified Data.Text as T
 import           Data.Text(Text)
 import           Data.Word(Word8, Word16, Word32)
 import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..),
-                  NodeAttribute(..), EdgeAttribute(..), EdgeAttr32, Node, Edge,
+                  NodeAttribute(..), EdgeAttribute(..), Edge32(..), Node32(..), Edge,
                   RangeStart, emptyJ, emptyE, fromList, fromListJ, fromListE, isNull,
                   insertCSVEdgeStream,
                   buildWord64, nodeWithLabel, nodeWithMaybeLabel, updateNodeEdges,
@@ -84,12 +84,14 @@ import Debug.Trace
 data (NodeAttribute nl, EdgeAttribute el) =>
      ComplexGraph nl el = ComplexGraph {
   judyGraphC :: Judy, -- ^ A Graph with 32 bit keys on the edge
-  enumGraphC :: Judy, -- ^ Enumerate the edges of the first graph, with counter at position 0.
+  enumGraphC :: Judy, -- ^ Enumerate the edges of the first graph,
+                      --   with counter at position 0.
                      --   Deletions in the first graph are not updated here (too costly)
-  complexNodeLabelMap :: Maybe (Map Word32 nl), -- ^ A node attr that doesn't fit into 64bit
-  complexEdgeLabelMap :: Maybe (Map (Node,Node) [el]),
+  complexNodeLabelMap :: Maybe (Map Node32 nl), -- ^ A node attr that doesn't fit into 64bit
+  complexEdgeLabelMap :: Maybe (Map (Node32,Node32) [el]),
   -- ^ An edge attr that doesn't fit into 64bit
-  rangesC :: NonEmpty (RangeStart, nl), -- ^ a nonempty list with an attribute for every range
+  rangesC :: NonEmpty (RangeStart, nl), -- ^ a nonempty list with an attribute
+                                        --   for every range
   nodeCountC :: Word32
 }
 
@@ -101,7 +103,7 @@ data (NodeAttribute nl, EdgeAttribute el) =>
 --  * if it already exists then the label of the existing node is changed.
 --    This can be slow because all node-edges have to be updated (O(#adjacentEdges))
 insertNode :: (NodeAttribute nl, EdgeAttribute el) =>
-              ComplexGraph nl el -> (Node, nl) -> IO (ComplexGraph nl el)
+              ComplexGraph nl el -> (Node32, nl) -> IO (ComplexGraph nl el)
 insertNode (ComplexGraph j eg nm em r n) (node, nl) = do
   let newNodeAttr = maybe Map.empty (Map.insert node nl) nm
 
@@ -119,7 +121,7 @@ insertNode (ComplexGraph j eg nm em r n) (node, nl) = do
 
 -- | Insert several nodes using 'insertNode'
 insertNodes :: (NodeAttribute nl, EdgeAttribute el) =>
-               ComplexGraph nl el -> [(Node, nl)] -> IO (ComplexGraph nl el)
+               ComplexGraph nl el -> [(Node32, nl)] -> IO (ComplexGraph nl el)
 insertNodes jgraph nodes = foldM insertNode jgraph nodes
 
 
@@ -129,8 +131,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   empty ranges = do
     j <- J.new :: IO Judy
     e <- J.new :: IO Judy
-    let nl = Map.empty :: Map Word32 nl
-    let el = Map.empty :: Map (Node,Node) [el]
+    let nl = Map.empty :: Map Node32 nl
+    let el = Map.empty :: Map (Node32,Node32) [el]
     return (ComplexGraph j e (Just nl) (Just el) ranges 0)
 
 
@@ -195,8 +197,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   -- Caution: Should currently be used much less than insert.
   --          It can make the lookup slower because of lookup failures
 
-  -- | This will currently produce holes in the continuously enumerated edge list of enumGraph.
-  --   But garbage collecting this is maybe worse.
+  -- | This will currently produce holes in the continuously enumerated edge list of
+  --   enumGraph. But garbage collecting this is maybe worse.
   deleteNode jgraph node = do
     let newNodeMap = fmap (Map.delete node) (complexNodeLabelMap jgraph)
     deleteNode jgraph node
@@ -207,26 +209,28 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     lmap = complexNodeLabelMap jgraph
 
 
-  -- | This will currently produce holes in the continuously enumerated edge list of enumGraph.
-  --   But garbage collecting this is maybe worse.
+  -- | This will currently produce holes in the continuously enumerated edge list of
+  --   enumGraph. But garbage collecting this is maybe worse.
   deleteNodes jgraph nodes = do
     newNodeMap <- foldM deleteNode jgraph nodes
     return (jgraph{ complexNodeLabelMap = complexNodeLabelMap newNodeMap })
 
 
-  -- | This will currently produce holes in the continuously enumerated edge list of enumGraph
-  --   But garbage collecting this is maybe worse.
+  -- | This will currently produce holes in the continuously enumerated edge list of
+  --   enumGraph. But garbage collecting this is maybe worse.
   deleteEdge :: (NodeAttribute nl, EdgeAttribute el) =>
                 (ComplexGraph nl el) -> Edge -> IO (ComplexGraph nl el)
   deleteEdge (ComplexGraph j e nm em r n) (n0,n1) = do
 --    deleteEdge (JGraph j r n) (n0, n1)
-    let newEdgeMap = fmap (Map.delete (n0,n1)) (complexEdgeLabelMap (ComplexGraph j e nm em r n))
+    let newEdgeMap = fmap (Map.delete (n0,n1))
+                          (complexEdgeLabelMap (ComplexGraph j e nm em r n))
     return (ComplexGraph j e nm newEdgeMap r n)
 
 
-  adjacentEdgesByAttr jgraph node attr = do
-    n <- J.lookup key j
-    map fst <$> maybe (return []) (lookupJudyNodes j node attr 1) n
+  adjacentEdgesByAttr jgraph (Node32 node) (Edge32 attr) = do
+    n <- fmap (fmap Node32) (J.lookup key j)
+    map fst <$> maybe (return [])
+                      (lookupJudyNodes j (Node32 node) (Edge32 attr) (Node32 1)) n
    where
     key = buildWord64 node attr
     j = judyGraphC jgraph
@@ -237,7 +241,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
 
   filterEdgesTo jgraph nodeEdges f = do
-    values <- mapM (\n -> J.lookup n j) nodeEdges
+    values <- mapM (\n -> fmap (fmap Edge32) (J.lookup n j)) nodeEdges
     return (map fst (filter filterNode (zip nodeEdges values)))
    where j = judyGraphC jgraph
          filterNode (ne, Just v) | f v = True
@@ -266,17 +270,17 @@ mapNode f jgraph = do
 -- You have to figure out a function (Node- > Word32 -> Word32) that is equivalent 
 -- to (Node -> nl -> nl) and call mapNodeWithKeyJ (so that everything stays consistent)
 mapNodeWithKey :: (NodeAttribute nl, EdgeAttribute el) =>
-                  (Node -> nl -> nl) -> (ComplexGraph nl el) -> IO (ComplexGraph nl el)
+                  (Node32 -> nl -> nl) -> (ComplexGraph nl el) -> IO (ComplexGraph nl el)
 mapNodeWithKey f jgraph = do
   let newMap = fmap (Map.mapWithKey f) (complexNodeLabelMap jgraph)
   return (jgraph {complexNodeLabelMap = newMap})
 
---------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------
 -- Query
 
 -- | This function only works on 'complexNodeLabelMap'
 lookupNode :: (NodeAttribute nl, EdgeAttribute el) =>
-              ComplexGraph nl el -> Word32 -> Maybe nl
+              ComplexGraph nl el -> Node32 -> Maybe nl
 lookupNode graph n = maybe Nothing (Map.lookup n) (complexNodeLabelMap graph)
 
 
@@ -285,20 +289,20 @@ lookupEdge :: (NodeAttribute nl, EdgeAttribute el) =>
               ComplexGraph nl el -> Edge -> Maybe [el]
 lookupEdge graph (n0,n1) = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelMap graph)
 
---------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------
 
 instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
          GraphCreateReadUpdate ComplexGraph nl el (CypherNode nl el) where
   table graph cypherNode
       | null (cols0 cypherNode) =
-          do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
-             evalToTableC graph [CN (CypherNode a n True)]
+        do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+           evalToTableC graph [CN (CypherNode a n True)]
       | otherwise = evalToTableC graph (reverse (cols0 cypherNode))
 
   temp graph cypherNode
       | null (cols0 cypherNode) =
-          do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
-             return [CN (CypherNode a n False)]
+        do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+           return [CN (CypherNode a n False)]
       | otherwise = fmap (map switchEvalOff . Map.elems . fst)
                          (runOnC graph False emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols0 cypherNode)

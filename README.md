@@ -38,9 +38,9 @@ Most databases take away this control. For example they talk about [warming up](
 Judy Arrays
 ===========
 
-Judy arrays are a key-value storage that promises very little cache misses when the key indexes are near to each other (They form the small/red structure): [Quote](http://www.nothings.org/computer/judy/): "If your data is often sequential, or approximately sequential (e.g. an arithmetic sequence stepping by 64), Judy might be the best data structure to use". This obviously means that only the lowest bits should change in the innermost loop.
+Judy arrays are a key-value storage that promises very little cache misses when the key indexes are near to each other (They form the small/red structure): [Quote](http://www.nothings.org/computer/judy/): "If your data is often sequential, or approximately sequential (e.g. an arithmetic sequence stepping by 64), Judy might be the best data structure to use". This obviously means that only the lowest bits of the key should change in an innermost loop.
 
-In a lot of graph algorithms you take a node, then you want to do something with all edges of a certain label (setting the edge attr bits in the lower image). Iterating all these edges is done with the lowest bits of the 64bit keys, called edge enum.
+In a lot of graph algorithms you take a node, then you want to do something with all edges of a certain label. Thi label is encoded with attr bits (in the lower image we use 10 bits for the edge attr bits). Iterating all these edges is done with the lowest bits of the 64bit keys, called edge enum (using 22 bits in the lower image).
 We use typeclasses to freely set the size of attr and enum bits to adapt this structure to your needs.
 
 <img src="doc/judy.svg" width="500">
@@ -49,8 +49,10 @@ Being forced to put edge properties into 32 bit is a strong limitation. But we c
 
 Associate a Word32-node with a type
 -----------------------------------
-In the examples we came up so far it was always possible to put nodes into a small set of classes (associate them with a type). In ghc core for example there are 10 different types of nodes/constructors:
+To use this CPU-trick we have to put nodes into classes.
+In the examples we came up so far it was always possible to use a small set of classes (associate them with a type). In ghc core for example there are 10 different types of nodes/constructors:
  - functions, types, application, literals, ...
+So a node is either a function node, a type node, ...
 
 If the nodes have a lot more than 10 types, it is almost always possible to generalize them into no more than ~10 types.
 
@@ -132,7 +134,7 @@ A query tries to match a pattern on a graph. This pattern is an alternation betw
 Pattern combinators
 -------------------
 
-An example how to combine node and edge specifiers, with ```--|``` and ```--|``` and other [pattern combinators](https://github.com/tkvogt/judy-graph-db/blob/54a41b25c516cf232c3364301285444ec91d1cc8/src/JudyGraph/Cypher.hs#L62-L83):
+An example how to combine node and edge specifiers, with ```--|``` and ```|--``` and other [pattern combinators](https://github.com/tkvogt/judy-graph-db/blob/54a41b25c516cf232c3364301285444ec91d1cc8/src/JudyGraph/Cypher.hs#L62-L83):
 
 ```Haskell
   query <- temp jgraph (simon --| raises |-- issue --| references |-- issue)

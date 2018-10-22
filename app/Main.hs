@@ -30,11 +30,11 @@ main = do
   references = edge (attr References) (where_ restrict) (1…3) :: CyE
   restrict w32 edgeMap = True
 
-  nodes :: [(J.Node, NodeLabel)]
-  nodes = [(0, PROGRAMMER), (1, PROGRAMMER),
-           (2, ORGANISATION),
-           (3, ISSUE), (4, ISSUE), (5, ISSUE), (6, ISSUE),
-           (7, PULL_REQUEST)]
+  nodes :: [(J.Node32, NodeLabel)]
+  nodes = [(Node32 0, PROGRAMMER), (Node32 1, PROGRAMMER),
+           (Node32 2, ORGANISATION),
+           (Node32 3, ISSUE), (Node32 4, ISSUE), (Node32 5, ISSUE), (Node32 6, ISSUE),
+           (Node32 7, PULL_REQUEST)]
 
   -- ranges are normally generated automatically from graph files,
   -- but here we do it by hand
@@ -42,24 +42,25 @@ main = do
                               (3, ISSUE), (7, PULL_REQUEST)]
 
   dirEdges :: [(J.Edge, [EdgeLabel])]
-  dirEdges = [((0,3), [Raises]),     -- PROGRAMMER Raises ISSUE
-              ((0,4), [Raises]),     -- PROGRAMMER Raises ISSUE
-              ((0,5), [Raises]),     -- PROGRAMMER Raises ISSUE
-              ((0,6), [Raises]),     -- PROGRAMMER Raises ISSUE
-              ((3,5), [References]), -- ISSUE References ISSUE
-              ((4,3), [References]), -- ISSUE References ISSUE
-              ((4,6), [References]), -- ISSUE References ISSUE
-              ((5,4), [Closes]),     -- PULL_REQUEST Closes ISSUE
-              ((0,3), [Closes]),     -- PROGRAMMER Closes ISSUE
-              ((1,7), [Accepts]),    -- PROGRAMMER Accepts PULL_REQUEST
-              ((0,2), [BelongtsTO])] -- PROGRAMMER BelongtsTO ORGANISATION
+  dirEdges = [((Node32 0,Node32 3), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((Node32 0,Node32 4), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((Node32 0,Node32 5), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((Node32 0,Node32 6), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((Node32 3,Node32 5), [References]), -- ISSUE References ISSUE
+              ((Node32 4,Node32 3), [References]), -- ISSUE References ISSUE
+              ((Node32 4,Node32 6), [References]), -- ISSUE References ISSUE
+              ((Node32 5,Node32 4), [Closes]),     -- PULL_REQUEST Closes ISSUE
+              ((Node32 0,Node32 3), [Closes]),     -- PROGRAMMER Closes ISSUE
+              ((Node32 1,Node32 7), [Accepts]),    -- PROGRAMMER Accepts PULL_REQUEST
+              ((Node32 0,Node32 2), [BelongtsTO])] -- PROGRAMMER BelongtsTO ORGANISATION
 
--------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------
 
 type CyN = CypherNode NodeLabel EdgeLabel
 type CyE = CypherEdge NodeLabel EdgeLabel
 
-data NodeLabel = PROGRAMMER | ORGANISATION | ISSUE | PULL_REQUEST deriving (Eq, Show, Enum)
+data NodeLabel = PROGRAMMER | ORGANISATION | ISSUE | PULL_REQUEST
+  deriving (Eq, Show, Enum)
 
 -- | Can be complex (like a record). Figure out which attributes are important for 
 --   filtering edges
@@ -71,8 +72,8 @@ instance NodeAttribute NodeLabel where
 
 instance EdgeAttribute EdgeLabel where
     -- What a programmer can do
-  fastEdgeAttr Raises      = (8,0x1000001) -- take the 8 highest bits
-  fastEdgeAttr Accepts     = (8,0x2000001) -- 1 higher than fastEdgeAttrBase because of counter
+  fastEdgeAttr Raises  = (8,0x1000001) -- take the 8 highest bits
+  fastEdgeAttr Accepts = (8,0x2000001) -- 1 higher than fastEdgeAttrBase because of counter
   fastEdgeAttr Closes      = (8,0x3000001)
   fastEdgeAttr BelongtsTO  = (8,0x4000001)
 
@@ -97,11 +98,12 @@ instance EdgeAttribute EdgeLabel where
 instance AddCSVLine EnumGraph NodeLabel EdgeLabel where
   addCsvLine m graph [vocIndex, str] = return graph
 
----------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------
 
 {-
-The second example shows how to do post processing of a graph. A query on the graph is used
-to find adjacent nodes, then we sort them and insert them again with "createMem" or "create".
+The second example shows how to do post processing of a graph. A query on the graph is 
+used to find adjacent nodes, then we sort them and insert them again with "createMem" or
+ "create".
 
 
 Example: Calculate dependency boundaries
@@ -121,11 +123,11 @@ intersections. We can broaden this equality later to find name changes of functi
 fixes, and other things. The intersection of sets is nothing one should do again and again
 for every imported function. Therefore we insert edges into the graph that connect all
 functions that are equal from the lowest version to the highest where it appears.
-If we import several functions we only have to follow these edges and find the lowest(highest) 
-common version of all functions. Although following edges with judy arrays is also O(log n),
-it is faster than looking up strings of types and function-names in Data.Map. We also later 
-want to do structure comparison of functions only once. Thats why this is a handy post
-processing step to speed up queries.
+If we import several functions we only have to follow these edges and find the 
+lowest(highest) common version of all functions. Although following edges with 
+judy arrays is also O(log n), it is faster than looking up strings of types and 
+function-names in Data.Map. We also later want to do structure comparison of functions 
+only once. Thats why this is a handy post processing step to speed up queries.
 
 To avoid a O(n²) brute force comparison of every node from set A to every node from Set B
 (intersection), we sort all functions in a package after type and name: O(n log n), and
@@ -152,25 +154,33 @@ main2 = do
   function    = node (labels [FUNCTION F]) :: CyN2
   sort ns = ns
 
-  nodes :: [(J.Node, NodeLabel2)]
-  nodes = [(0, PACKAGE "test"),
-           (1, PACKAGEVER "test-0.1"), (2, PACKAGEVER "test-0.2"), (3, PACKAGEVER "test-0.3"),
-           (4, FUNCTION (Func "Int -> Bool" "odd"  "MyPrelude")),
-           (5, FUNCTION (Func "Int -> Bool" "even" "MyPrelude")),
-           (6, FUNCTION (Func "Int -> Int"  "bell" "Test.Speculate.Utils"))]
+  nodes :: [(J.Node32, NodeLabel2)]
+  nodes = [(Node32 0, PACKAGE "test"),
+           (Node32 1, PACKAGEVER "test-0.1"),
+           (Node32 2, PACKAGEVER "test-0.2"),
+           (Node32 3, PACKAGEVER "test-0.3"),
+           (Node32 4, FUNCTION (Func "Int -> Bool" "odd"  "MyPrelude")),
+           (Node32 5, FUNCTION (Func "Int -> Bool" "even" "MyPrelude")),
+           (Node32 6, FUNCTION (Func "Int -> Int"  "bell" "Test.Speculate.Utils"))]
 
-  -- ranges are normally generated automatically from graph files, but here we do it by hand
+  -- ranges are normally generated automatically from graph files,
+  -- but here we do it by hand
   ranges = NonEmpty.fromList [(0, PACKAGE ""), (1, PACKAGEVER ""), (4, FUNCTION F)]
 
   dirEdges :: [(J.Edge, [EdgeLabel2])]
   dirEdges =
-    [((0,1), [PartOf]), ((0,2), [PartOf]), ((0,3), [PartOf]),
-     ((1,4), [PartOf]), ((2,4), [PartOf]), ((3,4), [PartOf]), -- "odd" is part of all three vers
-                        ((2,5), [PartOf]), ((3,5), [PartOf]), -- "even" exists since test-0.2
-                        ((2,6), [PartOf]) -- "bell" is only used in test-0.2
+    [((Node32 0,Node32 1), [PartOf]),
+     ((Node32 0,Node32 2), [PartOf]),
+     ((Node32 0,Node32 3), [PartOf]),
+     ((Node32 1,Node32 4), [PartOf]),
+     ((Node32 2,Node32 4), [PartOf]),
+     ((Node32 3,Node32 4), [PartOf]),-- "odd" is part of all three vers
+     ((Node32 2,Node32 5), [PartOf]),
+     ((Node32 3,Node32 5), [PartOf]), -- "even" exists since test-0.2
+     ((Node32 2,Node32 6), [PartOf]) -- "bell" is only used in test-0.2
     ]
 
-------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------
 
 type CyN2 = CypherNode NodeLabel2 EdgeLabel2
 type CyE2 = CypherEdge NodeLabel2 EdgeLabel2
@@ -229,6 +239,7 @@ instance EdgeAttribute EdgeLabel2 where
   -- What is more likely: Modification or new function? Has to be tested on real data
     ((n0 == n1) && (ty0 /= ty1) && (mod0 == mod1)
 
-    -- If there are still unconnected nodes, then they are either new to Set B, or have been deleted from A
+    -- If there are still unconnected nodes, then they are either new to Set B, 
+    -- or have been deleted from A
 -}
 
