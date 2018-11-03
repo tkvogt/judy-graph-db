@@ -31,7 +31,8 @@ then the functions in this module generate fast access node-edges with the
 -}
 module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node32(..), Edge32(..), Edge,
       -- * Construction
-      ComplexGraph(..), emptyJ, emptyE, fromList, fromListJ, fromListE, insertCSVEdgeStream,
+      ComplexGraph(..), emptyJ, emptyE, fromList, fromListJ, fromListE,
+      insertCSVEdgeStream,
       insertNode, insertNodes, insertNodeLines, insertNodeEdge, insertNodeEdges, union,
       -- * Deletion
       deleteNode, deleteNodes, deleteEdge,
@@ -87,7 +88,7 @@ data (NodeAttribute nl, EdgeAttribute el) =>
   enumGraphC :: Judy, -- ^ Enumerate the edges of the first graph,
                       --   with counter at position 0.
                      --   Deletions in the first graph are not updated here (too costly)
-  complexNodeLabelMap :: Maybe (Map Node32 nl), -- ^ A node attr that doesn't fit into 64bit
+  complexNodeLabelMap :: Maybe (Map Node32 nl),-- ^ A node attr that doesn't fit into 64bit
   complexEdgeLabelMap :: Maybe (Map (Node32,Node32) [el]),
   -- ^ An edge attr that doesn't fit into 64bit
   rangesC :: NonEmpty (RangeStart, nl), -- ^ a nonempty list with an attribute
@@ -146,7 +147,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                 && (maybe True Map.null edgeLabelMap))
 
 
-  -- | If you don't need complex node/edge labels use 'fromListJudy'
+  -- | If you don't need complex node/edge labels use 'fromListJ'
   fromList overwrite nodes directedEdges edges ranges = do
       jgraph <- empty ranges
       ngraph <- insertNodes jgraph nodes
@@ -164,8 +165,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     -- Using the secondary map for more detailed data
     oldLabel = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelMap jgraph)
     newEdgeLabelMap = Map.insert (n0,n1)
-             ((fromMaybe [] oldLabel) ++ [edgeLabels]) -- multi edges between the same nodes
-             (fromMaybe Map.empty (complexEdgeLabelMap jgraph))
+         ((fromMaybe [] oldLabel) ++ [edgeLabels]) -- multi edges between the same nodes
+         (fromMaybe Map.empty (complexEdgeLabelMap jgraph))
 
   --------------------------------------------------------------------------------------
 
@@ -294,17 +295,17 @@ lookupEdge graph (n0,n1) = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelM
 instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
          GraphCreateReadUpdate ComplexGraph nl el (CypherNode nl el) where
   table graph cypherNode
-      | null (cols0 cypherNode) =
-        do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
-           evalToTableC graph [CN (CypherNode a n True)]
-      | otherwise = evalToTableC graph (reverse (cols0 cypherNode))
+    | null (cols0 cypherNode) =
+      do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+         evalToTableC graph [CN (CypherNode a n True)]
+    | otherwise = evalToTableC graph (reverse (cols0 cypherNode))
 
   temp graph cypherNode
-      | null (cols0 cypherNode) =
-        do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
-           return [CN (CypherNode a n False)]
-      | otherwise = fmap (map switchEvalOff . Map.elems . fst)
-                         (runOnC graph False emptyDiff (Map.fromList (zip [0..] comps)))
+    | null (cols0 cypherNode) =
+      do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+         return [CN (CypherNode a n False)]
+    | otherwise = fmap (map switchEvalOff . Map.elems . fst)
+                       (runOnC graph False emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols0 cypherNode)
 
   createMem graph cypherNode

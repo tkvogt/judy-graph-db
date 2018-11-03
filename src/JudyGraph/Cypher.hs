@@ -509,11 +509,11 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) 
       | otherwise = evalToTableE graph (reverse (cols0 cypherNode))
 
   temp graph cypherNode
-      | null (cols0 cypherNode) =
-        do (CypherNode a c evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
-           return [CN (CypherNode a c False)]
-      | otherwise = fmap (map switchEvalOff . Map.elems . fst)
-                         (runOnE graph False emptyDiff (Map.fromList (zip [0..] comps)))
+    | null (cols0 cypherNode) =
+      do (CypherNode a c evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+         return [CN (CypherNode a c False)]
+    | otherwise = fmap (map switchEvalOff . Map.elems . fst)
+                       (runOnE graph False emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols0 cypherNode)
 
   createMem graph cypherNode
@@ -734,17 +734,18 @@ runOnE graph create (GraphDiff dns newns des newEs) comps
   elems = Map.elems comps
   getEdges :: Node32 -> IO [Edge32]
   getEdges n | null (attrE lOrR) =
-            Debug.Trace.trace ("attrE" ++ show (unsafePerformIO $ allChildEdges graph n)) $
-               allChildEdges graph n
+   Debug.Trace.trace ("attrE" ++ show (unsafePerformIO $ allChildEdges graph n attrBase)) $
+               allChildEdges graph n attrBase
              | otherwise = Debug.Trace.trace ("other" ++ show attrs) $
                            concat <$> mapM (adjacentEdgesByAttr graph n) (map Edge32 attrs)
 --   (Debug.Trace.trace ("ac " ++ concat (map showHex32 attrs)) n)) attrs
     where
-      attrs | useLeft   = genAttrs Map.empty (extractVariants (attrE (fromJust leftEdges)))
-            | otherwise = genAttrs Map.empty (extractVariants (attrE (fromJust rightEdges)))
-      lOrR | useLeft   = fromJust leftEdges
-           | otherwise = fromJust rightEdges
+     attrs | useLeft   = genAttrs Map.empty (extractVariants (attrE (fromJust leftEdges)))
+           | otherwise = genAttrs Map.empty (extractVariants (attrE (fromJust rightEdges)))
+     lOrR | useLeft   = fromJust leftEdges
+          | otherwise = fromJust rightEdges
 
+  attrBase = Edge32 0 -- TODO
   computeComplexity = Map.map compl comps
   minInd = Debug.Trace.trace ("\nelems " ++ show comps ++"\n"++
                                (show (Map.elems computeComplexity)))
@@ -807,9 +808,9 @@ overlaps jgraph nes =
       return (catMaybes (map fst ls), map snd ls)
     where
       test :: (Edge32, Node32) -> IO (Maybe (NodeEdge, Node32), NodeEdge)
-      test (Edge32 e, Node32 n1) = do
-        (_, (isNew, n2)) <- insertNodeEdgeAttr True jgraph
-                            ((Node32 n0, Node32 n1), Nothing, Nothing, Edge32 e, Edge32 e)
+      test (Edge32 e, n1) = do
+        (_,(isNew,(n2,_))) <- insertNodeEdgeAttr True jgraph
+                              ((Node32 n0, n1), Nothing, Nothing, Edge32 e, Edge32 e)
 -- insertNodeEdgeAttr useMJ overwrite jgraph ((n0, n1), nl0, nl1, edgeAttr, edgeAttrBase)
         let newEdge = buildWord64 n0 e
         let delEdge = if isNew then Just (newEdge, n2) else Nothing

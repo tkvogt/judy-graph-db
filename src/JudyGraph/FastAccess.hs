@@ -64,14 +64,14 @@ module JudyGraph.FastAccess (
     Edge, Node32(..), Edge32(..), NodeEdge, RangeStart, Index, Start, End, Bits(..),
     AddCSVLine(..),
     -- * Construction
-    emptyJ, fromListJ, insertCSVEdgeStream,
+    emptyJ, fromListJ,
     updateNodeEdges, insertNE, mapNodeJ, mapNodeWithKeyJ,
     -- * Extraction
     getNodeEdges, nodeEdgesJ, nodesJ,
     -- * Deletion
     deleteNodeEdgeListJ,
     -- * Query
-    adjacentNodesByAttr, adjacentNodeByAttr, lookupJudyNodes,
+    adjacentNodesByAttr, adjacentNodeByAttr, lookupJudyNodes, lookupNodeEdge,
     -- * Handling Labels
     nodeWithLabel, nodeWithMaybeLabel, nodeLabel,
     hasNodeAttr, extrAttr, newNodeAttr, bitmask, invBitmask,
@@ -115,8 +115,11 @@ type Judy = J.JudyL Word32
 
 -- ^The number of nodes is limited by Judy using 64 bit keys
 --  and 32 bit needed for the edge label
-newtype Edge32 = Edge32 Word32 deriving Show
-newtype Node32 = Node32 Word32 deriving (Eq, Ord, Show)
+newtype Edge32 = Edge32 Word32
+newtype Node32 = Node32 Word32 deriving (Eq, Ord)
+
+instance Show Edge32 where show (Edge32 e) = "Edge " ++ (showHex32 e)
+instance Show Node32 where show (Node32 n) = "Node " ++ (showHex32 n)
 
 type Start    = Node32
 -- ^ start index
@@ -147,8 +150,8 @@ class GraphClass graph nl el where
   empty :: NonEmpty (RangeStart, nl) -> IO (graph nl el)
   isNull :: graph nl el -> IO Bool
   fromList :: Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el])]
-                                     -> [(Edge, Maybe nl, Maybe nl, [el])] ->
-              NonEmpty (RangeStart, nl) -> IO (graph nl el)
+                                     -> [(Edge, Maybe nl, Maybe nl, [el])]
+           -> NonEmpty (RangeStart, nl) -> IO (graph nl el)
   insertNodeEdge ::  Bool -> graph nl el ->  (Edge,Maybe nl,Maybe nl,el)
                  -> IO (graph nl el)
   -- | Insert several edges using 'insertNodeEdge'
@@ -160,7 +163,7 @@ class GraphClass graph nl el where
                                                     (map addN edgeLs)
         where addN el = ((n0, n1), nl0, nl1, el)
   insertNodeEdgeAttr :: Bool -> graph nl el -> (Edge,Maybe nl,Maybe nl,Edge32,Edge32)
-                        -> IO (graph nl el, (Bool, Node32))
+                        -> IO (graph nl el, (Bool, (Node32,Word32)))
   insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
                          graph nl el -> FilePath ->
                          (graph nl el -> [String] -> IO (graph nl el)) -> IO (graph nl el)
@@ -252,10 +255,12 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     n2 <- J.lookup newValKey j
     let isEdgeNew = isNothing n2
     when (isEdgeNew || (not overwrite)) (J.insert edgeAttrCountKey (edgeAttrCount+1) j)
-    J.insert newValKey n1Key j -- (Debug.Trace.trace (show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showHex newValKey ++"("++ showHex32 n0Key ++","++ showHex32 n1Key ++")"++ showHex32 edgeAttr ++ show nl1) j)
+    J.insert newValKey n1Key j -- (Debug.Trace.trace ("Fast"++ show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showHex newValKey ++"("++ showHex32 n0Key ++","++ showHex32 n1Key ++")"++ showHex32 attr ++ show nl1 ++ showHex32 n0Key ++ showHex32 attrBase) j)
+    let newN = fromMaybe (Node32 n1) (fmap Node32 n2)
     if isEdgeNew || (not overwrite)
-      then return (jgraph { nodeCountJ = (nodeCount jgraph) + 1}, (isEdgeNew, Node32 n1))
-      else return (jgraph, (isEdgeNew, fromMaybe (Node32 n1) (fmap Node32 n2)))
+      then return (jgraph { nodeCountJ = (nodeCount jgraph) + 1},
+                           (isEdgeNew, (Node32 n1, edgeAttrCount)))
+      else return (jgraph, (isEdgeNew, (newN, edgeAttrCount)))
    where
     j = judyGraph jgraph
     n0Key = maybe n0 (nodeWithLabel (Node32 n0)) nl0
@@ -523,7 +528,7 @@ insertNE nodeEdges j = do
 ----------------------------------------------------------------------------------------
 -- Query
 
--- | return a single node
+-- | Return a single node
 adjacentNodeByAttr :: (GraphClass graph nl el,
                        NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                        graph nl el -> Node32 -> el -> IO (Maybe Node32)
@@ -573,6 +578,12 @@ lookupJudyNodes j (Node32 node) (Edge32 attr) (Node32 i) (Node32 n) = do
   where
     key = buildWord64 node (attr + i)
 
+
+-- | Return a single node
+lookupNodeEdge :: Judy -> Node32 -> Edge32 -> IO (Maybe Node32)
+lookupNodeEdge j (Node32 node) (Edge32 edge) = fmap (fmap Node32) (J.lookup key j)
+  where
+    key = buildWord64 node edge
 
 -------------------------------------------------------------------------
 -- Handling labels
