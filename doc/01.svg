@@ -8,9 +8,9 @@
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    version="1.1"
-   width="76.970337"
-   height="24.025423"
-   viewBox="-0.5 -0.5 76.970337 24.025423"
+   width="72.572037"
+   height="22.652542"
+   viewBox="-0.5 -0.5 72.572037 22.652542"
    content="&lt;mxfile userAgent=&quot;Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/70.0.3538.77 Chrome/70.0.3538.77 Safari/537.36&quot; version=&quot;9.4.2&quot; editor=&quot;www.draw.io&quot; type=&quot;device&quot;&gt;&lt;diagram name=&quot;Page-1&quot; id=&quot;42789a77-a242-8287-6e28-9cd8cfd52e62&quot;&gt;7VZNb9swDP01Pnaw5aRNjk3WtJcBAwJs3VGxGVuobKWykjj79aMsyh+xCwQottN8SMRHmpT4HpUE8bqonzU/5N9UCjJgYVoH8deAsTkL8dMCFwewxcwBmRapg6IO2IrfQCC9lx1FCtUg0CgljTgMwUSVJSRmgHGt1XkYtldyWPXAMxgB24TLMfpTpCYnNArDzvECIsup9GJOjh1P3jKtjiXVC1i8bx7nLrjPRfFVzlN17kHxUxCvtVLGrYp6DdK21rfNvbf5wNvuW0NpbnoBeBw9PCzDlCV8uYjvPAMnLo/gz3AvMdlqrzAnbtlcqE3370flHXdVQ+IjBkSLQ905cZXZ751Pg5txmRzu4Z3uEDYow3DLSDwaq3MuDGwPPLGeM0oPsdwUEq0Il03jwR4tRKvtrXUlqhAJOSTfgVy1TK2VVBpdpSptjcpo9QYeRALD5mk9XhA2615I2YvcNA91ZMMLIa3+f4BOeckJJrFHjOypQlyKrEQsQRZBty3p00pMn0AbqHsQ0fwMqgCjLxhC3pnXLo1ktCT73AncqzjvSdtjnEYqazN3ssIFKWtaZfGEpq45LtNHO7j21JJXlSWrTy0eXF9eicDG+GWNL3Nr1sK8+jhcdx5XBtLRtI8aWamjTiiK7irDdQY+anpOxt2+sZsaJDfiNNzWVIupwnclmuEjMuPZkEzUzjCFOw691Z//60TRMFHMrhK5JowSNYy3x75JBLO/dLHw/xfLZy+W0S0yMSIfXixs8c8uFjS7n0Ynwe7vR/z0Bw==&lt;/diagram&gt;&lt;/mxfile&gt;"
    id="svg28"
    sodipodi:docname="01.svg"
@@ -36,16 +36,16 @@
      guidetolerance="10"
      inkscape:pageopacity="0"
      inkscape:pageshadow="2"
-     inkscape:window-width="1650"
-     inkscape:window-height="1133"
+     inkscape:window-width="3066"
+     inkscape:window-height="1689"
      id="namedview30"
      showgrid="false"
      inkscape:zoom="4.3703704"
-     inkscape:cx="86.500001"
-     inkscape:cy="-2.9745761"
-     inkscape:window-x="190"
-     inkscape:window-y="111"
-     inkscape:window-maximized="0"
+     inkscape:cx="86.500002"
+     inkscape:cy="-4.3474573"
+     inkscape:window-x="134"
+     inkscape:window-y="55"
+     inkscape:window-maximized="1"
      inkscape:current-layer="svg28"
      fit-margin-top="0"
      fit-margin-left="0"
@@ -54,45 +54,45 @@
   <defs
      id="defs2" />
   <circle
-     cx="65.125"
-     cy="12.180085"
+     cx="61.375"
+     cy="11.455508"
      id="ellipse4"
-     r="11.122881"
-     style="opacity:0.25;fill:#000000;stroke:#000000;stroke-width:0.44491526" />
+     r="10.487288"
+     style="opacity:0.25;fill:#000000;stroke:#000000;stroke-width:0.41949153" />
   <circle
-     cx="64.235168"
-     cy="10.845339"
+     cx="60.536018"
+     cy="10.197034"
      pointer-events="none"
      id="ellipse6"
-     r="11.122881"
-     style="fill:#ffffff;stroke:#000000;stroke-width:0.44491526" />
+     r="10.487288"
+     style="fill:#ffffff;stroke:#000000;stroke-width:0.41949153" />
   <path
-     d="M 21.96822,10.845339 H 50.278178"
+     d="M 20.684322,10.197034 H 47.376568"
      stroke-miterlimit="10"
      pointer-events="none"
      id="path14"
      inkscape:connector-curvature="0"
-     style="fill:none;stroke:#000000;stroke-width:0.44491526;stroke-miterlimit:10" />
+     style="fill:none;stroke:#000000;stroke-width:0.41949153;stroke-miterlimit:10" />
   <path
-     d="m 52.613983,10.845339 -3.114407,1.557203 0.778602,-1.557203 -0.778602,-1.5572037 z"
+     d="m 49.578898,10.197034 -2.93644,1.46822 0.73411,-1.46822 -0.73411,-1.46822 z"
      stroke-miterlimit="10"
      pointer-events="none"
      id="path16"
      inkscape:connector-curvature="0"
-     style="fill:#000000;stroke:#000000;stroke-width:0.44491526;stroke-miterlimit:10" />
+     style="fill:#000000;stroke:#000000;stroke-width:0.41949153;stroke-miterlimit:10" />
   <circle
-     cx="11.735169"
-     cy="12.180085"
+     cx="11.036017"
+     cy="11.455508"
      id="ellipse18"
-     r="11.122881"
-     style="opacity:0.25;fill:#000000;stroke:#000000;stroke-width:0.44491526" />
+     r="10.487288"
+     style="opacity:0.25;fill:#000000;stroke:#000000;stroke-width:0.41949153" />
   <circle
-     cx="10.845339"
-     cy="10.845339"
+     cx="10.197034"
+     cy="10.197034"
      pointer-events="none"
      id="ellipse20"
-     r="11.122881"
-     style="fill:#ffffff;stroke:#000000;stroke-width:0.44491526" />
+     r="10.487288"
+     style="fill:#ffffff;stroke:#000000;stroke-width:0.41949153" />
   <text
      xml:space="preserve"
      style="font-style:normal;font-weight:normal;font-size:10.66666698px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none"
@@ -115,24 +115,24 @@
        y="47.505562" /></text>
   <text
      xml:space="preserve"
-     style="font-style:normal;font-weight:normal;font-size:11.86440659px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.44491526"
-     x="7.5424085"
-     y="14.8722"
+     style="font-style:normal;font-weight:normal;font-size:11.18644047px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.41949153"
+     x="7.0828428"
+     y="13.993789"
      id="text3755"><tspan
        sodipodi:role="line"
        id="tspan3753"
-       x="7.5424085"
-       y="14.8722"
-       style="stroke-width:0.44491526">0</tspan></text>
+       x="7.0828428"
+       y="13.993789"
+       style="stroke-width:0.41949153">0</tspan></text>
   <text
      xml:space="preserve"
-     style="font-style:normal;font-weight:normal;font-size:11.86440659px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.44491526"
-     x="60.886993"
-     y="14.8722"
+     style="font-style:normal;font-weight:normal;font-size:11.18644047px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.41949153"
+     x="57.379166"
+     y="13.993789"
      id="text3759"><tspan
        sodipodi:role="line"
        id="tspan3757"
-       x="60.886993"
-       y="14.8722"
-       style="stroke-width:0.44491526">1</tspan></text>
+       x="57.379166"
+       y="13.993789"
+       style="stroke-width:0.41949153">1</tspan></text>
 </svg>
