@@ -31,28 +31,30 @@ main = do
   restrict w32 edgeMap = True
 
   nodes :: [(J.Node32, NodeLabel)]
-  nodes = [(Node32 0, PROGRAMMER), (Node32 1, PROGRAMMER),
-           (Node32 2, ORGANISATION),
-           (Node32 3, ISSUE), (Node32 4, ISSUE), (Node32 5, ISSUE), (Node32 6, ISSUE),
-           (Node32 7, PULL_REQUEST)]
+  nodes = map n32n
+          [(0, PROGRAMMER), (1, PROGRAMMER),
+           (2, ORGANISATION),
+           (3, ISSUE), (4, ISSUE), (5, ISSUE), (6, ISSUE),
+           (7, PULL_REQUEST)]
 
   -- ranges are normally generated automatically from graph files,
   -- but here we do it by hand
   ranges = NonEmpty.fromList [(0, PROGRAMMER), (2, ORGANISATION),
                               (3, ISSUE), (7, PULL_REQUEST)]
 
-  dirEdges :: [(J.Edge, [EdgeLabel])]
-  dirEdges = [((Node32 0,Node32 3), [Raises]),     -- PROGRAMMER Raises ISSUE
-              ((Node32 0,Node32 4), [Raises]),     -- PROGRAMMER Raises ISSUE
-              ((Node32 0,Node32 5), [Raises]),     -- PROGRAMMER Raises ISSUE
-              ((Node32 0,Node32 6), [Raises]),     -- PROGRAMMER Raises ISSUE
-              ((Node32 3,Node32 5), [References]), -- ISSUE References ISSUE
-              ((Node32 4,Node32 3), [References]), -- ISSUE References ISSUE
-              ((Node32 4,Node32 6), [References]), -- ISSUE References ISSUE
-              ((Node32 5,Node32 4), [Closes]),     -- PULL_REQUEST Closes ISSUE
-              ((Node32 0,Node32 3), [Closes]),     -- PROGRAMMER Closes ISSUE
-              ((Node32 1,Node32 7), [Accepts]),    -- PROGRAMMER Accepts PULL_REQUEST
-              ((Node32 0,Node32 2), [BelongtsTO])] -- PROGRAMMER BelongtsTO ORGANISATION
+  dirEdges :: [(J.Edge, Maybe NodeLabel, Maybe NodeLabel, [EdgeLabel], Bool)]
+  dirEdges = map n32e
+             [((0,3), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((0,4), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((0,5), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((0,6), [Raises]),     -- PROGRAMMER Raises ISSUE
+              ((3,5), [References]), -- ISSUE References ISSUE
+              ((4,3), [References]), -- ISSUE References ISSUE
+              ((4,6), [References]), -- ISSUE References ISSUE
+              ((5,4), [Closes]),     -- PULL_REQUEST Closes ISSUE
+              ((0,3), [Closes]),     -- PROGRAMMER Closes ISSUE
+              ((1,7), [Accepts]),    -- PROGRAMMER Accepts PULL_REQUEST
+              ((0,2), [BelongtsTO])] -- PROGRAMMER BelongtsTO ORGANISATION
 
 -----------------------------------------------------------------------------------------
 
@@ -72,17 +74,13 @@ instance NodeAttribute NodeLabel where
 
 instance EdgeAttribute EdgeLabel where
     -- What a programmer can do
-  fastEdgeAttr Raises  = (8,0x1000001) -- take the 8 highest bits
-  fastEdgeAttr Accepts = (8,0x2000001) -- 1 higher than fastEdgeAttrBase because of counter
+  fastEdgeAttr Raises      = (8,0x1000001) -- take the 8 highest bits
+  fastEdgeAttr Accepts     = (8,0x2000001) -- 1 higher than fastEdgeAttrBase because of counter
   fastEdgeAttr Closes      = (8,0x3000001)
   fastEdgeAttr BelongtsTO  = (8,0x4000001)
 
   -- What an issue can do
   fastEdgeAttr References  = (8,0x5000001)
-
-  -- A property all edges can have
-  fastEdgeAttr EdgeForward = (8,0x80000000) -- the highest bit
-
 
   fastEdgeAttrBase Raises     = 0x1000000
   fastEdgeAttrBase Accepts    = 0x2000000
@@ -90,9 +88,8 @@ instance EdgeAttribute EdgeLabel where
   fastEdgeAttrBase BelongtsTO = 0x4000000
 
   fastEdgeAttrBase References = 0x5000000
-  fastEdgeAttrBase EdgeForward = 0x80000000
 
-  edgeForward = Just EdgeForward
+  edgeForward _ = 0x80000000
 
 
 instance AddCSVLine EnumGraph NodeLabel EdgeLabel where
@@ -155,29 +152,30 @@ main2 = do
   sort ns = ns
 
   nodes :: [(J.Node32, NodeLabel2)]
-  nodes = [(Node32 0, PACKAGE "test"),
-           (Node32 1, PACKAGEVER "test-0.1"),
-           (Node32 2, PACKAGEVER "test-0.2"),
-           (Node32 3, PACKAGEVER "test-0.3"),
-           (Node32 4, FUNCTION (Func "Int -> Bool" "odd"  "MyPrelude")),
-           (Node32 5, FUNCTION (Func "Int -> Bool" "even" "MyPrelude")),
-           (Node32 6, FUNCTION (Func "Int -> Int"  "bell" "Test.Speculate.Utils"))]
+  nodes = map n32n
+          [(0, PACKAGE "test"),
+           (1, PACKAGEVER "test-0.1"),
+           (2, PACKAGEVER "test-0.2"),
+           (3, PACKAGEVER "test-0.3"),
+           (4, FUNCTION (Func "Int -> Bool" "odd"  "MyPrelude")),
+           (5, FUNCTION (Func "Int -> Bool" "even" "MyPrelude")),
+           (6, FUNCTION (Func "Int -> Int"  "bell" "Test.Speculate.Utils"))]
 
   -- ranges are normally generated automatically from graph files,
   -- but here we do it by hand
   ranges = NonEmpty.fromList [(0, PACKAGE ""), (1, PACKAGEVER ""), (4, FUNCTION F)]
 
-  dirEdges :: [(J.Edge, [EdgeLabel2])]
-  dirEdges =
-    [((Node32 0,Node32 1), [PartOf]),
-     ((Node32 0,Node32 2), [PartOf]),
-     ((Node32 0,Node32 3), [PartOf]),
-     ((Node32 1,Node32 4), [PartOf]),
-     ((Node32 2,Node32 4), [PartOf]),
-     ((Node32 3,Node32 4), [PartOf]),-- "odd" is part of all three vers
-     ((Node32 2,Node32 5), [PartOf]),
-     ((Node32 3,Node32 5), [PartOf]), -- "even" exists since test-0.2
-     ((Node32 2,Node32 6), [PartOf]) -- "bell" is only used in test-0.2
+  dirEdges :: [(J.Edge, Maybe NodeLabel2, Maybe NodeLabel2, [EdgeLabel2], Bool)]
+  dirEdges = map n32e
+    [((0,1), [PartOf]),
+     ((0,2), [PartOf]),
+     ((0,3), [PartOf]),
+     ((1,4), [PartOf]),
+     ((2,4), [PartOf]),
+     ((3,4), [PartOf]),-- "odd" is part of all three vers
+     ((2,5), [PartOf]),
+     ((3,5), [PartOf]), -- "even" exists since test-0.2
+     ((2,6), [PartOf]) -- "bell" is only used in test-0.2
     ]
 
 -------------------------------------------------------------------------------------------
@@ -213,7 +211,7 @@ instance EdgeAttribute EdgeLabel2 where
     -- What a programmer can do
     fastEdgeAttr PartOf = (8,0x1000001) -- take the 8 highest bits
     fastEdgeAttrBase PartOf = 0x1000000
-    edgeForward = Nothing
+    edgeForward _ = 0
 
 ---------------------------------------------
 {-

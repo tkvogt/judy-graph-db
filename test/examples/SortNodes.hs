@@ -49,37 +49,51 @@ import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Text(Text)
 import           JudyGraph
 import qualified JudyGraph as J
-import qualified JudyGraph.Cypher as Cy
 
 main :: IO ()
 main = do
---  jgraph <- J.fromList False nodes dirEdges [] ranges
---  [CN _ p, _, CN _ v, _, CN _ f, _] <- temp jgraph (packages --> packagesVer --> function)
+  jgraph <- J.fromListE False nodes dirEdges [] ranges :: IO (EnumGraph NodeLabel EdgeLabel)
+--  [CN p, _, CN v, _, CN f, _] 
+  query <- qtable jgraph (f0 --| next |-- function) -- (packages --> packagesVer --> function)
 --  createMem jgraph (p --> v --> appl sort f)
 --  create jgraph dbPath (p --> v --> appl sort f)
---  putStrLn ("query result: " ++ show query)
+  putStrLn ("query result: " ++ show query) -- show (p,v,f))
   putStrLn "Done"
  where
-  packages    = node (labels [PACKAGE ""]) :: CyN
+  packages    = node (nodes32 [0]) :: CyN -- (labels [PACKAGE ""]) :: CyN
   packagesVer = node (labels [PACKAGEVER ""]) :: CyN
   function    = node (labels [FUNCTION F]) :: CyN
+  an = node anyNode :: CyN
   sort ns = ns
+  f0 = node (nodes32 [7]) :: CyN
+  next = edge (attr NextVer) (1…3) :: CyE -- (attr Closes) :: CyE
 
-  nodes :: [(J.Node, NodeLabel)]
-  nodes = [(0, PACKAGE "test"),
+  nodes :: [(J.Node32, NodeLabel)]
+  nodes = map n32n
+          [(0, PACKAGE "test"),
            (1, PACKAGEVER "test-0.1"), (2, PACKAGEVER "test-0.2"), (3, PACKAGEVER "test-0.3"),
            (4, FUNCTION (Func "Int -> Bool" "odd"  "MyPrelude")),
            (5, FUNCTION (Func "Int -> Bool" "even" "MyPrelude")),
-           (6, FUNCTION (Func "Int -> Int"  "bell" "Test.Speculate.Utils"))]
+           (6, FUNCTION (Func "Int -> Int"  "bell" "Test.Speculate.Utils")),
+           (7, FUNCTION (Func "Int" "a"  "MyPrelude")),
+           (8, FUNCTION (Func "Bool" "b"  "MyPrelude")),
+           (9, FUNCTION (Func "Double" "c"  "MyPrelude")),
+           (10, FUNCTION (Func "Double" "c"  "MyPrelude"))
+          ]
 
   -- ranges are normally generated automatically from graph files, but here we do it by hand
   ranges = NonEmpty.fromList [(0, PACKAGE ""), (1, PACKAGEVER ""), (4, FUNCTION F)]
 
-  dirEdges :: [(J.Edge, [EdgeLabel])]
-  dirEdges = [((0,1), [PartOf]), ((0,2), [PartOf]), ((0,3), [PartOf]),
+  dirEdges :: [(J.Edge, Maybe NodeLabel, Maybe NodeLabel, [EdgeLabel], Bool)]
+  dirEdges = map n32e
+             [((0,1), [PartOf]), ((0,2), [PartOf]), ((0,3), [PartOf]),
               ((1,4), [PartOf]), ((2,4), [PartOf]), ((3,4), [PartOf]), -- "odd" is part of all three vers
                                  ((2,5), [PartOf]), ((3,5), [PartOf]), -- "even" exists since test-0.2
-                                 ((2,6), [PartOf]) -- "bell" is only used in test-0.2
+                                 ((2,6), [PartOf]), -- "bell" is only used in test-0.2
+              ((1,2), [NextVer]), ((2,3), [NextVer]),
+              ((7,8), [NextVer]),
+              ((8,9), [NextVer]),
+              ((9,10), [NextVer])
              ]
 
 --------------------------------------------------------------------------------------------------
@@ -99,23 +113,25 @@ instance Enum NodeLabel where
 
 data Func =
      Func { functionType :: !Text
-       , functionName :: !Text
-       , nameSpace :: !Text
-       }
+          , functionName :: !Text
+          , nameSpace :: !Text
+          }
      | F deriving (Eq ,Ord, Show)
 
 -- | Can be complex (like a record). Figure out which attributes are important for filtering edges
-data EdgeLabel = PartOf deriving Show
+data EdgeLabel = PartOf | NextVer deriving Show
 
 instance NodeAttribute NodeLabel where
     fastNodeAttr _ = (0, 0) -- we don't use node attrs
 
 instance EdgeAttribute EdgeLabel where
     -- What a programmer can do
-    fastEdgeAttr PartOf = (8,0x1000001) -- take the 8 highest bits
-    fastEdgeAttrBase PartOf = 0x1000000
-    edgeForward = Nothing
-    addCsvLine _ graph _ = return graph
+    fastEdgeAttr PartOf   = (8,0x1000001) -- take the 8 highest bits
+    fastEdgeAttr NextVer  = (8,0x2000001) -- take the 8 highest bits
+    fastEdgeAttrBase PartOf  = 0x1000000
+    fastEdgeAttrBase NextVer = 0x2000000
+    edgeForward _ = 0
+--    addCsvLine _ graph _ = return graph
 
 ---------------------------------------------
 {-

@@ -22,7 +22,7 @@ module JudyGraph.Enum (
     -- * Deletion
     deleteNodeEdgeListJ, deleteNodeEdgeListE,
     -- * Query
-    adjacentNodesByAttr, adjacentNodeByAttr, lookupJudyNodes, adjacentEdgeCount,
+    adjacentNodesByAttr, adjacentNodeByAttr, lookupJudyNodes, adjacentEdgeCount, enumBase,
     allChildEdges, adjacentEdgesByIndex, allChildNodes, allChildNodesFromEdges,
     -- * Handling Labels
     nodeWithLabel, nodeWithMaybeLabel, nodeLabel,
@@ -100,17 +100,22 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
   fromList overwrite nodes directedEdges nodeEdges ranges = do
     jgraph <- empty ranges
-    insertNodeEdges overwrite jgraph (directedEdges ++ nodeEdges)
+    insertNodeEdges overwrite jgraph nodes
+                    (directedEdges ++ (map addDir nodeEdges) ++ (map dirRev nodeEdges) )
+    where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
+          dirRev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels, True)
+
+  addNodeCount nodes jgraph = jgraph { nodeCountE = (nodeCountE jgraph) + fromIntegral (length nodes) }
 
   -- | Build the graph without using the secondary Data.Map graph
   --   If edge already exists and (overwrite == True) overwrite it
   --   otherwise create a new edge and increase counter (that is at index 0)
-  insertNodeEdge overwrite jgraph ((Node32 n0, Node32 n1), nl0, nl1, edgeLabel) =
+  insertNodeEdge overwrite jgraph ((Node32 n0, Node32 n1), nl0, nl1, edgeLabel, dir) =
     fmap fst $ insertNodeEdgeAttr overwrite jgraph
                            ((Node32 n0, Node32 n1), nl0, nl1, Edge32 attr, Edge32 attrBase)
    where
-    attr = snd (fastEdgeAttr edgeLabel)
-    attrBase = fastEdgeAttrBase edgeLabel
+    attr =   snd (fastEdgeAttr edgeLabel) + (if dir then 0 else edgeForward edgeLabel)
+    attrBase = fastEdgeAttrBase edgeLabel + (if dir then 0 else edgeForward edgeLabel)
 
 {-
   insertNodeEdgeAttr over gr ((Node32 n0, n1), nl0, nl1, Edge32 attr, attrBase) = do
@@ -129,8 +134,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     maybeEdgeAttrCount <- J.lookup edgeAttrCountKey j
     let edgeAttrCount = fromMaybe 0 maybeEdgeAttrCount
 
-    insertEnumEdge jgraph (Node32 n0Key)
-                          (Edge32 attrBase)
+    insertEnumEdge jgraph (Node32 n0Key) enumBase
                           (Edge32 (attr + if overwrite then 0 else edgeAttrCount))
 --    debugToCSV (n0Key,n1Key) edgeLabel
     -------------------------------------
@@ -138,11 +142,10 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     n2 <- J.lookup newValKey j
     let isEdgeNew = isNothing n2
     when (isEdgeNew || (not overwrite)) (J.insert edgeAttrCountKey (edgeAttrCount+1) j)
-    J.insert newValKey n1Key j --(Debug.Trace.trace ("Enum   "++ show (n0, Edge32 (attr + if overwrite then 0 else edgeAttrCount),Node32 n1) ++" "++ show edgeAttrCount ++ "\n") j)
+    J.insert newValKey n1Key j -- (Debug.Trace.trace ("Enum   "++ show (n0, Edge32 (attr + if overwrite then 0 else edgeAttrCount),Node32 n1) ++" "++ show edgeAttrCount ++ "\n") j)
     let newN = fromMaybe (Node32 n1) (fmap Node32 n2)
     if isEdgeNew || (not overwrite)
-      then return (jgraph { nodeCountE = (nodeCountE jgraph) + 1},
-                           (isEdgeNew, (Node32 n1, edgeAttrCount)))
+      then return (jgraph, (isEdgeNew, (Node32 n1, edgeAttrCount)))
       else return (jgraph, (isEdgeNew, (newN, edgeAttrCount)))
    where
     j = judyGraphE jgraph
@@ -249,6 +252,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   ranges graph = rangesE graph
   judyGraph graph = judyGraphE graph
 
+-- | The count key is at position 0 of the enum judy graph
+enumBase = Edge32 0
 
 -- | The enumGraph enumerates all child edges
 -- and maps to the second 32 bit of the key of all nodeEdges
@@ -259,8 +264,7 @@ allChildEdges jgraph (Node32 node) (Edge32 attrBase) = do
   let ec = fromMaybe 0 edgeCount
   let enumKeys = map (buildWord64 node) [1..ec]
   edges <- mapM (\key -> J.lookup key mj) enumKeys
-  return (map Edge32-- Debug.Trace.trace ("ec " ++ show enumKeys) $
-          (catMaybes edges))
+  return (Debug.Trace.trace ("ec " ++ show (node, attrBase) ++ show enumKeys ++ show edgeCount) $ (map Edge32 (catMaybes edges)))
  where
   edgeCountKey = buildWord64 node attrBase
   mj = enumGraph jgraph
@@ -291,11 +295,11 @@ emptyE :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 emptyE rs = empty rs
 
 fromListE :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
-             Bool -> [(Node32, nl)] -> [(Edge, [el])]-> [(Edge, [el])] ->
+             Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el], Bool)]
+                                    -> [(Edge, Maybe nl, Maybe nl, [el])] ->
              NonEmpty (RangeStart, nl) -> IO (EnumGraph nl el)
 fromListE overwrite nodes dirEdges edges ranges =
-  fromList overwrite nodes (addN dirEdges) (addN edges) ranges
-    where addN = map (\(ns, es) -> (ns, Nothing, Nothing, es))
+  fromList overwrite nodes dirEdges edges ranges
 
 -------------------------------------------------------------------------------------------
 
@@ -345,7 +349,7 @@ insertEnumEdge jgraph (Node32 n0Key) (Edge32 attrBase) (Edge32 edgeAttr) = do
           else J.insert edgeCountKey ((fromJust edgeCount)+1) mj -- inc counter by 1
     let enumKey = buildWord64 n0Key (attrBase+(fromMaybe 0 edgeCount)+1)
     J.insert enumKey edgeAttr mj
-       -- (Debug.Trace.trace ("enEdge "++ show (n0Key, Edge32 (attrBase+(fromMaybe 0 edgeCount)+1), Node32 edgeAttr)) mj)
+     --  (Debug.Trace.trace ("enEdge "++ show (n0Key, Edge32 (attrBase+(fromMaybe 0 edgeCount)+1), Node32 edgeAttr)) mj)
   where
     mj = enumGraph jgraph
     -- the enumgraph has the # of adjacent edges at index 0

@@ -56,6 +56,8 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node32(..), Edge32(..), E
       node, anyNode, labels, nodes32, NodeAttr(..), NAttr(..),
       -- * Edge specifiers
       edge, attr, orth, where_, several, (…), genAttrs, extractVariants, AttrVariants(..),
+      -- * Syntax helpers
+      n32n, n32e
      ) where
 
 import           Control.Monad(foldM, when)
@@ -151,12 +153,14 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   fromList overwrite nodes directedEdges edges ranges = do
       jgraph <- empty ranges
       ngraph <- insertNodes jgraph nodes
-      insertNodeEdges overwrite ngraph (directedEdges ++ edges ++ (map rev edges))
-    where rev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels)
+      insertNodeEdges overwrite ngraph nodes
+                      (directedEdges ++ (map addDir edges) ++ (map dirRev edges) )
+    where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
+          dirRev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels, True)
 
 
-  insertNodeEdge overwrite jgraph ((n0,n1), _, _, edgeLabels) = do
-    insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels)
+  insertNodeEdge overwrite jgraph ((n0,n1), _, _, edgeLabels, dir) = do
+    insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels, dir)
     return (jgraph { complexEdgeLabelMap = Just newEdgeLabelMap })
    where
     nl0 = maybe Nothing (Map.lookup n0) (complexNodeLabelMap jgraph)

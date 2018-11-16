@@ -35,7 +35,10 @@ module JudyGraph.Cypher(
          -- * Attributes, Labels,...
          Attr(..), LabelNodes(..),
          -- * Query Evaluation Internals
-         evalToTableE, runOnE, evalNode, GraphDiff(..), emptyDiff, switchEvalOff
+         evalToTableE, qEvalToTableE, runOnE, evalLtoR, evalNode, GraphDiff(..),
+         emptyDiff, switchEvalOff,
+         -- * Syntax helpers
+         n32n, n32e
        ) where
 
 import           Control.Monad(zipWithM)
@@ -54,7 +57,7 @@ import           Data.Word(Word8, Word16, Word32)
 import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..), NodeEdge, 
           Node32(..), Edge32(..), NodeAttribute (..), EdgeAttribute(..), Bits(..),
           empty, hasNodeAttr, allChildNodesFromEdges, allChildEdges, adjacentEdgesByAttr,
-          buildWord64, lookupJudyNodes, showHex, showHex32)
+          buildWord64, lookupJudyNodes, showHex, showHex32, enumBase)
 import System.IO.Unsafe(unsafePerformIO)
 import Debug.Trace
 
@@ -95,7 +98,7 @@ infixl 7 -->
 infixl 7 <--
 
 -----------------------------------------
--- More beatiful combinators with unicode
+-- More beautiful combinators with unicode
 
 (─┤) x y = (--|) x y -- Unicode braces ⟬⟭⦃⦄⦗⦘ are not allowed
 (├─) x y = (|--) x y
@@ -108,6 +111,10 @@ infixl 7 <--
 
 -- | How often to try an edge, eg 1…3
 (…) n0 n1 = several n0 n1
+(...) n0 n1 = several n0 n1
+
+-- | variable length path
+(**) = several 0 4294967295
 
 infixl 7 ─┤
 infixl 7 ├─
@@ -160,19 +167,25 @@ data NAttr = AllNodes
            | Nodes4 [[[[Node32]]]]
            | Nodes5 [[[[[Node32]]]]]
            | Nodes6 [[[[[[Node32]]]]]]
-           | Nodes7 [[[[[[[Node32]]]]]]] -- That should be enough
-           | Edges  [Edge32]
+           | Nodes7 [[[[[[[Node32]]]]]]]
+           | Nodes8 [[[[[[[[Node32]]]]]]]]
+           | Nodes9 [[[[[[[[[Node32]]]]]]]]] -- That should be enough
+              deriving Show
+
+data EAttr = Edges  [Edge32]
            | Edges2 [[Edge32]]
            | Edges3 [[[Edge32]]]
            | Edges4 [[[[Edge32]]]]
            | Edges5 [[[[[Edge32]]]]]
            | Edges6 [[[[[[Edge32]]]]]]
-           | Edges7 [[[[[[[Edge32]]]]]]] -- That should be enough
+           | Edges7 [[[[[[[Edge32]]]]]]]
+           | Edges8 [[[[[[[[Edge32]]]]]]]]
+           | Edges9 [[[[[[[[[Edge32]]]]]]]]] -- That should be enough
               deriving Show
 
 
--- Keep structure and apply a IO-function to the lowest nesting of nodes
-applyDeep :: (Node32 -> IO [Edge32]) -> NAttr -> IO NAttr
+-- Keep structure and apply an IO-function to the lowest nesting of nodes
+applyDeep :: (Node32 -> IO [Edge32]) -> NAttr -> IO EAttr
 applyDeep f (Nodes ns)  = fmap Edges2 $ sequence (map f ns)
 applyDeep f (Nodes2 ns) = fmap Edges3 $ sequence (map (sequence . (map f)) ns)
 applyDeep f (Nodes3 ns) = fmap Edges4 $
@@ -188,13 +201,26 @@ applyDeep f (Nodes6 ns) = fmap Edges7 $
            (map (sequence .
            (map (sequence .
            (map (sequence . (map (sequence . (map f)))))))))) ns)
+applyDeep f (Nodes7 ns) = fmap Edges8 $
+  sequence (map (sequence .
+           (map (sequence .
+           (map (sequence .
+           (map (sequence .
+           (map (sequence . (map (sequence . (map f)))))))))))) ns)
+applyDeep f (Nodes8 ns) = fmap Edges9 $
+  sequence (map (sequence .
+           (map (sequence .
+           (map (sequence .
+           (map (sequence .
+           (map (sequence .
+           (map (sequence . (map (sequence . (map f)))))))))))))) ns)
 
 
--- Keep structure and apply a IO-function to the lowest nesting of two lists
+-- Keep structure and apply an IO-function to the lowest nesting of two lists
 zipNAttr :: (NodeAttribute nl, EdgeAttribute el) =>
             graph nl el -> (Node32 -> [Edge32] -> IO [Node32])
             -> NAttr -- Node -- first 32 bit of several node-edges
-            -> NAttr -- [EdgeAttr32] -- several second 32 bit
+            -> EAttr -- [EdgeAttr32] -- several second 32 bit
             -> IO NAttr -- [Node]) -- looked up nodes
 zipNAttr graph f (Nodes  ns) (Edges2 es) = fmap Nodes2 $ zipWithM f ns es
 zipNAttr graph f (Nodes2 ns) (Edges3 es) = fmap Nodes3 $ zipWithM (zipWithM f) ns es
@@ -206,7 +232,13 @@ zipNAttr graph f (Nodes5 ns) (Edges6 es) =
   fmap Nodes6 $ zipWithM (zipWithM (zipWithM (zipWithM (zipWithM f)))) ns es
 zipNAttr graph f (Nodes6 ns) (Edges7 es) =
   fmap Nodes7 $ zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM f))))) ns es
-
+zipNAttr graph f (Nodes7 ns) (Edges8 es) =
+  fmap Nodes8 $
+    zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM f)))))) ns es
+zipNAttr graph f (Nodes8 ns) (Edges9 es) =
+ fmap Nodes9 $
+   zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM f)))))))
+            ns es
 
 class NestedLists a where
   toNAttr :: a -> NAttr
@@ -229,8 +261,8 @@ data Attr =
    | Several Int Int
 
 instance Show Attr where
-  show (Attr w32) = "Attr" ++ show w32
-  show (Orth w32) = "Orth" ++ show w32
+  show (Attr w32) = "Attr " ++ show w32
+  show (Orth w32) = "Orth " ++ show w32
   show (EFilterBy f) = "EFilterBy"
   show (Several i0 i1) = show i0 ++ "…" ++ show i1
 
@@ -244,6 +276,8 @@ appl f n = CypherNode (map change (attrN n)) (cols0 n) True
         change (Nodes5 ns) = Nodes5 (map (map (map (map f))) ns)
         change (Nodes6 ns) = Nodes6 (map (map (map (map (map f)))) ns)
         change (Nodes7 ns) = Nodes7 (map (map (map (map (map (map f))))) ns)
+        change (Nodes8 ns) = Nodes8 (map (map (map (map (map (map (map f)))))) ns)
+        change (Nodes9 ns) = Nodes9 (map (map (map (map (map (map (map (map f))))))) ns)
 
 ----------------------------------
 -- EDSL trickery inspired by shake
@@ -337,13 +371,13 @@ several n0 n1 = EdgeAttr [Several n0 n1]
 -- > edge (orth Vector0) (orth Vector1) (attr Attr0) (attr Attr1) (attr Attr2)
 -- The order does not matter. See 'extractVariants'.
 genAttrs :: Map (Node32,Node32) [Word32] -> AttrVariants -> [Word32]
-genAttrs m vs | null (eFilter vs) = genAttrs
-              | otherwise = filterBy (head (eFilter vs)) genAttrs
+genAttrs m vs | null (eFilter vs) = gAttrs
+              | otherwise = filterBy (head (eFilter vs)) gAttrs
   where
     filterBy (EFilterBy f) = filter (f m)
-    genAttrs | null oAttrs = aAttrs
-             | null aAttrs = setProduct oAttrs
-             | otherwise = combineAttrs aAttrs (setProduct oAttrs)
+    gAttrs | null oAttrs = aAttrs
+           | null aAttrs = setProduct oAttrs
+           | otherwise = combineAttrs aAttrs (setProduct oAttrs)
     aAttrs = map getAW32 (attrs vs) -- added attributes
     oAttrs = map getOW32 (orths vs) -- ortho attributes
     getAW32 (Attr e) = e
@@ -465,6 +499,9 @@ class GraphCreateReadUpdate graph nl el a where
   -- | Evaluate the query to a flattened table (every column a list of nodes)
   table :: graph nl el -> a -> IO [NE nl]
 
+  -- | Evaluate from left to right (not calculating a query strategy)
+  qtable :: graph nl el -> a -> IO [NE nl]
+
   -- | The result is evaulated to nested lists and can be reused
   temp :: graph nl el -> a -> IO [CypherComp nl el]
 
@@ -504,9 +541,15 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) 
          GraphCreateReadUpdate EnumGraph nl el (CypherNode nl el) where
   table graph cypherNode
       | null (cols0 cypherNode) =
-        do (CypherNode a c b) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
-           evalToTableE graph [CN (CypherNode a c True)]
+                 do (CypherNode a c b) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+                    evalToTableE graph [CN (CypherNode a c True)]
       | otherwise = evalToTableE graph (reverse (cols0 cypherNode))
+
+  qtable graph cypherNode
+      | null (cols0 cypherNode) =
+                 do (CypherNode a c b) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+                    qEvalToTableE graph [CN (CypherNode a c True)]
+      | otherwise = qEvalToTableE graph (reverse (cols0 cypherNode))
 
   temp graph cypherNode
     | null (cols0 cypherNode) =
@@ -533,6 +576,9 @@ instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) 
          GraphCreateReadUpdate EnumGraph nl el (CypherEdge nl el) where
   table graph cypherEdge | null (cols1 cypherEdge) = return []
                          | otherwise = evalToTableE graph (reverse (cols1 cypherEdge))
+
+  qtable graph cypherEdge | null (cols1 cypherEdge) = return []
+                          | otherwise = qEvalToTableE graph (reverse (cols1 cypherEdge))
 
   temp graph cypherEdge
       | null (cols1 cypherEdge) = return []
@@ -563,10 +609,18 @@ evalToTableE :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribu
 evalToTableE graph comps =
   do (res,_) <- runOnE graph False emptyDiff (Map.fromList (zip [0..] comps))
      return (map toNE (Map.elems res))
- where
-  toNE (CN (CypherNode as c _)) = N (reduceAttrs as [] [])
-  toNE (CE (CypherEdge as (Just es) c _)) = NE es
-  toNE (CE (CypherEdge as Nothing c _)) = NE []
+
+
+qEvalToTableE :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
+                EnumGraph nl el -> [CypherComp nl el] -> IO [NE nl]
+qEvalToTableE graph comps =
+  do res <- evalLtoR graph False emptyDiff comps
+     return (map toNE (fst res))
+
+
+toNE (CN (CypherNode as c _)) = N (reduceAttrs as [] [])
+toNE (CE (CypherEdge as (Just es) c _)) = NE es
+toNE (CE (CypherEdge as Nothing c _)) = NE []
 
 
 reduceAttrs :: (NodeAttribute nl, Enum nl) => [NAttr] -> [Int] -> [Node32] -> LabelNodes nl
@@ -578,6 +632,8 @@ reduceAttrs ((Nodes3 ns):as) l n = reduceAttrs as l (flatten (Nodes3 ns) ++ n)
 reduceAttrs ((Nodes4 ns):as) l n = reduceAttrs as l (flatten (Nodes4 ns) ++ n)
 reduceAttrs ((Nodes5 ns):as) l n = reduceAttrs as l (flatten (Nodes5 ns) ++ n)
 reduceAttrs ((Nodes6 ns):as) l n = reduceAttrs as l (flatten (Nodes6 ns) ++ n)
+reduceAttrs ((Nodes7 ns):as) l n = reduceAttrs as l (flatten (Nodes7 ns) ++ n)
+reduceAttrs ((Nodes8 ns):as) l n = reduceAttrs as l (flatten (Nodes8 ns) ++ n)
 reduceAttrs [] l n | null l    = Ns n
                    | otherwise = Lbl (map toEnum l)
 
@@ -587,6 +643,8 @@ flatten (Nodes3 ns) = concat (concat ns)
 flatten (Nodes4 ns) = concat (concat (concat ns))
 flatten (Nodes5 ns) = concat (concat (concat (concat ns)))
 flatten (Nodes6 ns) = concat (concat (concat (concat (concat ns))))
+flatten (Nodes7 ns) = concat (concat (concat (concat (concat (concat ns)))))
+flatten (Nodes8 ns) = concat (concat (concat (concat (concat (concat (concat ns))))))
 
 flatten2 (Nodes ns) = [ns]
 flatten2 (Nodes2 ns) = ns
@@ -594,13 +652,17 @@ flatten2 (Nodes3 ns) = concat ns
 flatten2 (Nodes4 ns) = concat (concat ns)
 flatten2 (Nodes5 ns) = concat (concat (concat ns))
 flatten2 (Nodes6 ns) = concat (concat (concat (concat ns)))
+flatten2 (Nodes7 ns) = concat (concat (concat (concat (concat ns))))
+flatten2 (Nodes8 ns) = concat (concat (concat (concat (concat (concat ns)))))
 
-flatten3 (Edges es)  = [es]
-flatten3 (Edges2 es) = es
-flatten3 (Edges3 es) = concat es
-flatten3 (Edges4 es) = concat (concat es)
-flatten3 (Edges5 es) = concat (concat (concat es))
-flatten3 (Edges6 es) = concat (concat (concat (concat es)))
+flattenEs (Edges es)  = [es]
+flattenEs (Edges2 es) = es
+flattenEs (Edges3 es) = concat es
+flattenEs (Edges4 es) = concat (concat es)
+flattenEs (Edges5 es) = concat (concat (concat es))
+flattenEs (Edges6 es) = concat (concat (concat (concat es)))
+flattenEs (Edges7 es) = concat (concat (concat (concat (concat es))))
+flattenEs (Edges8 es) = concat (concat (concat (concat (concat (concat es)))))
 
 data Compl a = NCompl a | ECompl a deriving Show
 
@@ -659,7 +721,7 @@ evalComp graph (CN (CypherNode a c b)) =
 evalNode :: (GraphClass graph nl el, NodeAttribute nl, EdgeAttribute el, Enum nl) =>
             graph nl el -> (CypherNode nl el) -> IO (CypherNode nl el)
 evalNode graph (CypherNode [AllNodes] c b) =
-  do return (CypherNode [ Nodes (map Node32 [0..(nodeCount graph)]) ] c b)
+  do return (CypherNode [ Nodes (map Node32 [0..((nodeCount graph)-1)]) ] c b)
 
 evalNode graph (CypherNode [Label ls] c b) = do
         return (CypherNode [Nodes lNodes] c b)
@@ -680,12 +742,63 @@ evalNode graph (CypherNode ns c b) =
 extractNodes (CN (CypherNode ns c _)) = ns
 
 
+-- | A lot of queries are developed with an intuition that they are evaluated
+--  from left to right. By doing this we can avoid the time to construct
+--  a query strategy, like with 'runOnE'
+evalLtoR :: (Eq nl, Show nl, Show el, Enum nl,
+          NodeAttribute nl, EdgeAttribute el) =>
+         EnumGraph nl el -> Bool -> GraphDiff ->
+         [CypherComp nl el] -> IO ([CypherComp nl el], GraphDiff)
+evalLtoR graph create (GraphDiff dns newns des newdEs) (n0:e0:n1:comps)
+  | not (startsWithNode n0) =
+    error "a query has to start with a node in evalLtoR in Cypher.hs"
+  | otherwise = do
+     evalCenter <- if unEv n0 then evalComp graph n0 else return n0
+     let startNs = extractNodes evalCenter :: [NAttr]
+     (cNAdj, nEs, ns, (delEs,newNEs), count) <- walkPaths graph create startNs r ([],[]) 1
+     let adjCenter  = CN (CypherNode startNs [] True)
+     let ne = if count == 1 then Just (concat (map nodeEdges nEs))
+                            else Nothing -- only show edges when there is length 1 path
+     let restrEdges = CE (CypherEdge [] ne [] True)
+     let restrNodes = CN (CypherNode ns [] True)
+     (cs, diff) <-
+       if noMoreNodesFound ns
+       then return ([], GraphDiff dns newns des newdEs)
+       else evalLtoR graph create (GraphDiff dns newns (des ++ delEs) (newdEs ++ newNEs))
+                                  (restrNodes:comps)
+     return (if null cs then [] else adjCenter : restrEdges : cs, diff)
+ where
+  r = unCE e0
+  noMoreNodesFound n = -- Debug.Trace.trace ("(n0,e0,n1)"++ show (n0,e0,n1))
+                       (null (head (map flatten n)))
+
+evalLtoR graph create diff [n0]
+  | not (startsWithNode n0) =
+    error "a query has to start with a node in evalLtoR in Cypher.hs"
+  | unEv n0 = do
+     evalCenter <- evalComp graph (Debug.Trace.trace (show n0) n0)
+     let startNs = extractNodes evalCenter :: [NAttr]
+     let restrNodes = CN (CypherNode startNs [] True)
+     return ([restrNodes], diff)
+  | otherwise = return ([n0], diff)
+
+evalLtoR graph create diff cs = return ([], diff)
+
+startsWithNode (CN (CypherNode ns c _)) = True
+startsWithNode _ = False
+
+unEv (CE (CypherEdge a e c False)) = True
+unEv (CN (CypherNode a c False)) = True
+unEv _ = False
+
+unCE (CE x) = x
+
 -- | This function repeatedly computes a column in the final table
 --   until all columns are evaluated. The columns alternate from left to right between 
 --   sets of nodes and sets of edges (enforced by the EDSL). The algorithm choses the 
 --   node-column which is fastest to compute. Then it choses the edge column left or
 --   right (together with the nodes where it leads) to pick the faster one of the
---   two choices.
+--   two choices. If 'several' is used the columns are skipped
 runOnE :: (Eq nl, Show nl, Show el, Enum nl,
           NodeAttribute nl, EdgeAttribute el) =>
          EnumGraph nl el -> Bool -> GraphDiff ->
@@ -699,53 +812,17 @@ runOnE graph create (GraphDiff dns newns des newEs) comps
   | otherwise =
  do evalCenter <- evalComp graph (fromJust center)
     let startNs = extractNodes evalCenter :: [NAttr]
-    adjacentEdges <- mapM (applyDeep getEdges) startNs
-
-    let es = -- Debug.Trace.trace (show startNs ++ " ee " ++ show adjacentEdges) $
-             adjacentEdges :: [NAttr] -- TODO apply WHERE restriction
-    newNodes <- zipWithM (zipNAttr graph (allChildNodesFromEdges graph)) startNs es
-    let flatSNs = map flatten startNs :: [[Node32]]
-    let flatEs = map flatten3 es :: [[[Edge32]]]
-    let flatNs = map flatten2 newNodes :: [[[Node32]]]
-    (delEs,newNEs) <- if create
-                      then overlaps graph (concat $ zipWith3 addNs flatSNs flatEs flatNs)
-                      else return ([],[])
-    let ns =
-    -- Debug.Trace.trace ("nn "++ show newNodes ++" "++ show unevaluatedNs ++" "++ show es)
-             newNodes -- TODO: If already evaluated at this place,
-                    -- choose smaller list and probably reduce node lists in this direction
-    let nEdges = concat $ zipWith zip flatSNs flatEs :: [(Node32, [Edge32])]
-    let centerNodesAdj = map fst (filter (\(n,es) -> not (null es)) nEdges)
-    let adjCenter  = CN (CypherNode [toNAttr centerNodesAdj] [] True)
-    let restrNodes = CN (CypherNode ns [] True)
-    let restrEdges = CE (CypherEdge [] (Just (concat (map nodeEdges nEdges))) [] True)
+    (cNAdj, nEs, newNs, (delEs,newNEs), count) <- walkPaths graph create startNs lOrR ([],[]) 1
+    let adjCenter  = CN (CypherNode [toNAttr cNAdj] [] True)
+    let restrNodes = CN (CypherNode newNs [] True)
+    let restrEdges = CE (CypherEdge [] (Just (concat (map nodeEdges nEs))) [] True)
     let newCenter = Map.insert minInd (if useLeft then restrNodes else adjCenter) comps
     runOnE graph create (GraphDiff dns newns delEs newNEs)
          (newComponents restrEdges (if useLeft then adjCenter else restrNodes) newCenter)
  where
-  addNs :: [Node32] -> [[Edge32]] -> [[Node32]] -> [(Node32, [(Edge32, Node32)])]
-  addNs n0 es ns = zipWith3 addN n0 es ns
-  addN :: Node32 -> [Edge32] -> [Node32] -> (Node32, [(Edge32, Node32)])
-  addN n0 es ns = (n0, zip es ns)
   unevaluatedNs = sum (map unEvalCount elems)
-  unEv (CE (CypherEdge a e c False)) = True
-  unEv (CN (CypherNode a c False)) = True
-  unEv _ = False
   elems = Map.elems comps
-  getEdges :: Node32 -> IO [Edge32]
-  getEdges n | null (attrE lOrR) =
-   Debug.Trace.trace ("attrE" ++ show (unsafePerformIO $ allChildEdges graph n attrBase)) $
-               allChildEdges graph n attrBase
-             | otherwise = Debug.Trace.trace ("other" ++ show attrs) $
-                           concat <$> mapM (adjacentEdgesByAttr graph n) (map Edge32 attrs)
---   (Debug.Trace.trace ("ac " ++ concat (map showHex32 attrs)) n)) attrs
-    where
-     attrs | useLeft   = genAttrs Map.empty (extractVariants (attrE (fromJust leftEdges)))
-           | otherwise = genAttrs Map.empty (extractVariants (attrE (fromJust rightEdges)))
-     lOrR | useLeft   = fromJust leftEdges
-          | otherwise = fromJust rightEdges
 
-  attrBase = Edge32 0 -- TODO
   computeComplexity = Map.map compl comps
   minInd = Debug.Trace.trace ("\nelems " ++ show comps ++"\n"++
                                (show (Map.elems computeComplexity)))
@@ -761,8 +838,8 @@ runOnE graph create (GraphDiff dns newns des newEs) comps
   rightEdges = unCE <$> Map.lookup (minInd + 1) comps
   rightNodes =          Map.lookup (minInd + 2) comps
 
-  unCN (CN x) = x
-  unCE (CE x) = x
+  lOrR | useLeft   = fromJust leftEdges
+       | otherwise = fromJust rightEdges
 
   newComponents :: (CypherComp nl el)
                 -> (CypherComp nl el)
@@ -789,6 +866,62 @@ runOnE graph create (GraphDiff dns newns des newEs) comps
 
 nodeEdges :: (Node32, [Edge32]) -> [NodeEdge]
 nodeEdges (Node32 n, es) = map (\(Edge32 e) -> buildWord64 n e) es
+
+n32n (n,nl) = (Node32 n, nl)
+n32e ((from,to),ls) = ((Node32 from, Node32 to), Nothing, Nothing, ls, True)
+
+-- | If an edge has to be walked repeatedly, eg with "edge (1…3)"
+walkPaths :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
+             EnumGraph nl el -> Bool -> [NAttr] -> CypherEdge nl el ->
+             ([(NodeEdge, Node32)], [NodeEdge]) -> Int ->
+             IO ([Node32], [(Node32, [Edge32])], [NAttr], ([(NodeEdge, Node32)], [NodeEdge]), Int)
+walkPaths graph create startNs lOrR (startDelEs,startNewNEs) count = do
+    adjacentEdges <- mapM (applyDeep getEdges) startNs
+    let es = -- Debug.Trace.trace (show startNs ++ " ee " ++ show adjacentEdges) $
+             adjacentEdges :: [EAttr] -- TODO apply WHERE restriction
+    newNodes <- zipWithM (zipNAttr graph (allChildNodesFromEdges graph)) startNs es
+    let flatEs = map flattenEs es :: [[[Edge32]]]
+    let flatNs = map flatten2 newNodes :: [[[Node32]]]
+    (delEs,newNEs) <- if create
+                      then overlaps graph (concat $ zipWith3 addNs flatSNs flatEs flatNs)
+                      else return ([],[])
+    let ns =
+             -- Debug.Trace.trace ("nn "++ show newNodes ++" "++ show es ++ show (repeatStart, repeatEnd, count))
+             newNodes -- TODO: If already evaluated at this place,
+                    -- choose smaller list and probably reduce node lists in this direction
+    let nEdges = concat $ zipWith zip flatSNs flatEs :: [(Node32, [Edge32])]
+    let centerNodesAdj = map fst (filter (\(n,es) -> not (null es)) nEdges)
+    if (null nEdges || count >= repeatEnd)
+      then (if null nEdges && (count < repeatStart || count >= (repeatEnd-1))
+            then return ([], [], [], ([],[]), count)
+            else return (centerNodesAdj, [], ns, (delEs,newNEs), count))
+      else walkPaths graph create ns lOrR (startDelEs ++ delEs, startNewNEs ++ newNEs) (count+1)
+ where
+  flatSNs = map flatten startNs :: [[Node32]]
+  getEdges :: Node32 -> IO [Edge32]
+  getEdges n | null (attrE lOrR) =
+   -- Debug.Trace.trace ("attrE" ++ show (unsafePerformIO $ allChildEdges graph n enumBase)) $
+               allChildEdges graph n enumBase
+             | otherwise = -- Debug.Trace.trace ("other" ++ show (n,attrs, attrE lOrR, unsafePerformIO adj))
+                           adj
+--   (Debug.Trace.trace ("ac " ++ concat (map showHex32 attrs)) n)) attrs
+    where
+      attrs = genAttrs Map.empty variants
+      adj = concat <$> mapM (adjacentEdgesByAttr graph n) (map Edge32 attrs)
+
+  variants = extractVariants (attrE lOrR)
+
+  getSeveral :: AttrVariants -> [Attr]
+  getSeveral (AttrVariants _ _ _ sev) = sev
+
+  (Several repeatStart repeatEnd) | null vs = Several 0 1
+                                  | otherwise = head vs
+    where vs = getSeveral variants
+
+  addNs :: [Node32] -> [[Edge32]] -> [[Node32]] -> [(Node32, [(Edge32, Node32)])]
+  addNs n0 es ns = zipWith3 addN n0 es ns
+  addN :: Node32 -> [Edge32] -> [Node32] -> (Node32, [(Edge32, Node32)])
+  addN n0 es ns = (n0, zip es ns)
 
 
 -- | Add nodeEdges to the graph and remember the changes so that the graph on the ssd can

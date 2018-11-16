@@ -7,7 +7,6 @@ import           Data.Word(Word8, Word16, Word32)
 
 import JudyGraph
 import qualified JudyGraph as J
-import qualified JudyGraph.Cypher as Cy
 
 main :: IO ()
 main = do
@@ -22,11 +21,12 @@ main = do
   issue  = node (labels [ISSUE]) :: CyN
 
   -- on my keyboard … is <alt Gr> + <.>
-  references = edge (attr References) (where_ restrict) (1…3) :: CyE
+  references = edge (attr References) :: CyE -- (where_ restrict) (1…3) :: CyE
   restrict w32 edgeMap = True
 
-  nodes :: [(J.Node, NodeLabel)]
-  nodes = [(0, PROGRAMMER), (1, PROGRAMMER),
+  nodes :: [(J.Node32, NodeLabel)]
+  nodes = map n32n
+          [(0, PROGRAMMER), (1, PROGRAMMER),
            (2, ORGANISATION),
            (3, ISSUE), (4, ISSUE), (5, ISSUE), (6, ISSUE),
            (7, PULL_REQUEST)]
@@ -34,8 +34,9 @@ main = do
   -- ranges are normally generated automatically from graph files, but here we do it by hand
   ranges = NonEmpty.fromList [(0, PROGRAMMER), (2, ORGANISATION), (3, ISSUE), (7, PULL_REQUEST)]
 
-  dirEdges :: [(J.Edge, [EdgeLabel])]
-  dirEdges = [((0,3), [Raises]),     -- PROGRAMMER Raises ISSUE
+  dirEdges :: [(J.Edge, Maybe NodeLabel, Maybe NodeLabel, [EdgeLabel], Bool)]
+  dirEdges = map n32e
+             [((0,3), [Raises]),     -- PROGRAMMER Raises ISSUE
               ((0,4), [Raises]),     -- PROGRAMMER Raises ISSUE
               ((0,5), [Raises]),     -- PROGRAMMER Raises ISSUE
               ((0,6), [Raises]),     -- PROGRAMMER Raises ISSUE
@@ -68,18 +69,12 @@ instance EdgeAttribute EdgeLabel where
     -- What an issue can do
     fastEdgeAttr References  = (8,0x5000001)
 
-    -- A property all edges can have
-    fastEdgeAttr EdgeForward = (8,0x80000000) -- the highest bit
-
-
     fastEdgeAttrBase Raises     = 0x1000000
     fastEdgeAttrBase Accepts    = 0x2000000
     fastEdgeAttrBase Closes     = 0x3000000
     fastEdgeAttrBase BelongtsTO = 0x4000000
 
     fastEdgeAttrBase References = 0x5000000
-    fastEdgeAttrBase EdgeForward = 0x80000000
 
-    edgeForward = Just EdgeForward
-    addCsvLine _ graph _ = return graph
+    edgeForward _ = 0x80000000
 

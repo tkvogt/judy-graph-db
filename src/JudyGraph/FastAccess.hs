@@ -149,19 +149,20 @@ data (NodeAttribute nl, EdgeAttribute el) =>
 class GraphClass graph nl el where
   empty :: NonEmpty (RangeStart, nl) -> IO (graph nl el)
   isNull :: graph nl el -> IO Bool
-  fromList :: Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el])]
+  fromList :: Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el], Bool)]
                                      -> [(Edge, Maybe nl, Maybe nl, [el])]
            -> NonEmpty (RangeStart, nl) -> IO (graph nl el)
-  insertNodeEdge ::  Bool -> graph nl el ->  (Edge,Maybe nl,Maybe nl,el)
+  insertNodeEdge ::  Bool -> graph nl el ->  (Edge,Maybe nl,Maybe nl,el,Bool)
                  -> IO (graph nl el)
   -- | Insert several edges using 'insertNodeEdge'
-  insertNodeEdges :: Bool -> graph nl el -> [(Edge,Maybe nl,Maybe nl,[el])]
+  insertNodeEdges :: Bool -> graph nl el -> [(Node32, nl)] -> [(Edge,Maybe nl,Maybe nl,[el],Bool)]
                   -> IO (graph nl el)
-  insertNodeEdges overwrite jgraph es = foldM foldEs jgraph es
+  insertNodeEdges overwrite jgraph nodes es = fmap (addNodeCount nodes) (foldM foldEs jgraph es)
     where
-      foldEs g ((n0, n1), nl0, nl1, edgeLs) = foldM (insertNodeEdge overwrite) g
-                                                    (map addN edgeLs)
-        where addN el = ((n0, n1), nl0, nl1, el)
+      foldEs g ((n0, n1), nl0, nl1, edgeLs, dir) = foldM (insertNodeEdge overwrite) g
+                                                         (map addN edgeLs)
+        where addN el = ((n0, n1), nl0, nl1, el, dir)
+  addNodeCount :: [(Node32, nl)] -> graph nl el -> graph nl el
   insertNodeEdgeAttr :: Bool -> graph nl el -> (Edge,Maybe nl,Maybe nl,Edge32,Edge32)
                         -> IO (graph nl el, (Bool, (Node32,Word32)))
   insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
@@ -199,7 +200,8 @@ class NodeAttribute nl where
 class EdgeAttribute el where
     fastEdgeAttr :: el -> (Bits, Word32)
     fastEdgeAttrBase :: el -> Word32 -- The key that is used for counting
-    edgeForward :: Maybe el -- edge Label for edge in direction given (orthogonal attr)
+    edgeForward :: el -> Word32 -- 0 if the edge is "in direction", otherwise a value (a bit) that 
+                          -- does not interfere with the rest of the attr (orthogonal attr)
   --   main attr of the arbitraryKeygraph
   --   e.g. unicode leaves 10 bits of the 32 bits unused, that could be used for the
   --   direction of the edge, if its a right or left edge in a binary tree, etc.
@@ -229,17 +231,23 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
   fromList overwrite nodes directedEdges nodeEdges ranges = do
     jgraph <- empty ranges
-    insertNodeEdges overwrite jgraph (directedEdges ++ nodeEdges)
+    insertNodeEdges overwrite jgraph nodes
+                    (directedEdges ++ (map addDir nodeEdges) ++ (map dirRev nodeEdges) )
+    where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
+          dirRev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels, True)
+
+  addNodeCount nodes jgraph = jgraph { nodeCountJ = (nodeCountJ jgraph) +
+                                                    (fromIntegral (length nodes)) }
 
   -- | Build the graph without using the secondary Data.Map graph
   --   If edge already exists and (overwrite == True) overwrite it
   --   otherwise create a new edge and increase counter (that is at index 0)
-  insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabel) =
+  insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabel, dir) =
       fmap fst $ insertNodeEdgeAttr overwrite jgraph
                                     ((n0, n1), nl0, nl1, Edge32 attr, Edge32 attrBase)
     where
-      attr = snd (fastEdgeAttr edgeLabel)
-      attrBase = fastEdgeAttrBase edgeLabel
+      attr =   (snd (fastEdgeAttr edgeLabel)) + (if dir then 0 else edgeForward edgeLabel)
+      attrBase = (fastEdgeAttrBase edgeLabel) + (if dir then 0 else edgeForward edgeLabel)
 
 
   insertNodeEdgeAttr overwrite jgraph
@@ -374,11 +382,11 @@ emptyJ rs = empty rs
 
 
 fromListJ :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
-             Bool -> [(Node32, nl)] -> [(Edge, [el])]-> [(Edge, [el])] ->
+             Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el], Bool)]
+                                    -> [(Edge, Maybe nl, Maybe nl, [el])] ->
              NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
 fromListJ overwrite nodes dirEdges edges ranges =
-  fromList overwrite nodes (addN dirEdges) (addN edges) ranges
-    where addN = map (\(ns, es) -> (ns, Nothing, Nothing, es))
+  fromList overwrite nodes dirEdges edges ranges
 
 -------------------------------------------------------------------------------------------
 
