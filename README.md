@@ -200,7 +200,9 @@ Directed and undirected edges
 -----------------------------
 
 A normal edge is directed:
+
 <img src="doc/01.svg" width="300">
+
 If we connect 0 with with 1, we can take 0 and know that it is connected with 1, but if we take 1, we don't know that there is an incoming edge from 0. Therefore IF it is needed for an algorithm, we add another edge from 1 to 0 and mark it as opposite.
 An undirected edge can be achieved by an edge from 0 to 1, and an edge from 1 to 0.
 
