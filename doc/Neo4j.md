@@ -73,8 +73,8 @@ You have to say what m and n are
 ---
 
 #### Neo4j ####
-``` (m)-->(n) ```
-Relationship from m to n.
+``` (m)--(n) ```
+Relationship between m and n.
 
 #### judy-graph-db ####
 ```haskell
