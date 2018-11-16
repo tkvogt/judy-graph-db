@@ -29,7 +29,7 @@ When a query or an algorithm is executed on the graph, it typically doesn't need
  - A node/edge could also concist of a record of Strings, Ints, ... . Visualized with the middle sized circles and lines
  - If it is critical that no data is ever lost, parts of the graph have to be persisted, see the big circle and lines.
 
-If the strings are only needed in the final step of an algorithm while an int-counter and word32-index are mostly used, we try to store it in the red/small structure. It would be ideal if we could influence where parts of the graph end up: L1/L2/L3-Cache, memory or HD/SSD.
+If the strings are only needed in the final step of an algorithm while an int-counter and word32-index are mostly used, we try to store it in the red/small structure. It would be ideal if we could influence where parts of the graph end up: L1/L2/L3-Cache, memory or HD/SSD. With our construction of edges with continuous 32 bit values, we try to fit as much as possible into the L1/L2/L3 caches.
 
 <img src="doc/idea.svg" width="500">
 
@@ -40,7 +40,7 @@ Judy Arrays
 
 Judy arrays are a key-value storage that promises very little cache misses when the key indexes are near to each other (They form the small/red structure): [Quote](http://www.nothings.org/computer/judy/): "If your data is often sequential, or approximately sequential (e.g. an arithmetic sequence stepping by 64), Judy might be the best data structure to use". This obviously means that only the lowest bits of the key should change in an innermost loop.
 
-In a lot of graph algorithms you take a node, then you want to do something with all edges of a certain label. Thi label is encoded with attr bits (in the lower image we use 10 bits for the edge attr bits). Iterating all these edges is done with the lowest bits of the 64bit keys, called edge enum (using 22 bits in the lower image).
+In a lot of graph algorithms you take a node, then you want to do something with all edges of a certain label. This label is encoded with attr bits (in the lower image we use 10 bits for the edge attr bits). Iterating all these edges is done with the lowest bits of the 64bit keys, called edge enum (using 22 bits in the lower image).
 We use typeclasses to freely set the size of attr and enum bits to adapt this structure to your needs.
 
 <img src="doc/judy.svg" width="500">
@@ -95,8 +95,8 @@ data (NodeAttribute nl, EdgeAttribute el) =>
 EnumGraph
 ---------
 
-If there are holes in the key range, it would be very inefficient to calulcate all child nodes by enumerating the keys. A second ```enumGraph``` is used to enumerate all edges.
-As an example where this can happen, imagine a search engine that allows unicode in the search string. We put a unicode value in the edge, not all unicodes appear, but we might want to know all child nodes of a node.
+If there are holes in the key range (the 32bit edge), it would be very inefficient to calulcate all child nodes by also visiting the holes. A second ```enumGraph``` is used to enumerate all edges.
+As an example where this can happen, imagine a search engine that allows unicode in the search string. We make a tree that keeps a unicode value in every edge. But we don't want to test for all 32 bit values if an edge exists. Unfortuantely we sometimes want to know just all child edges of a node. The cypher queries can only be done with an EnumGraph because of this.
 
 ```Haskell
 data (NodeAttribute nl, EdgeAttribute el) =>
@@ -174,11 +174,11 @@ If all edges should be followed from a layer in a query use ```~~```, ```-->``` 
 Otherwise use ```<--|```, ```|-->```, ```|--``` or ```--|``` with an edge specifier between the ```|```.
 The edges that should be followed can be restricted by one or several arguments to the ```edge```-function:
 ```haskell
-edge (attr KNOWS) (attr LOVES) (several 1…3)
+--| (edge (attr KNOWS) (attr LOVES) (1…3)) |-->
 ```
 
  - ```(attr LABEL)``` follows all LABEL-edges, adding ```attr LABEL_2``` means that these edges are also followed
- - ```(orth LABEL)``` This had to be introduced to allow the ```|``` in ```(m)<-[:KNOWS|:LOVES]-(n)```.
+ - ```(orth LABEL)``` This had to be introduced to allow the "or": ```|``` in ```(m)<-[:KNOWS|:LOVES]-(n)```.
 It can only be applied to labels whose bit represenation is orthogonal. Imagine this like vectors in vector space that form a base. And now we have a convenient notation to follow all combinations.
 
    For example as we encode labels with binary: ```LABELA = 0b001, LABELB = 0b010, LABELC = 0b100```.
@@ -191,7 +191,18 @@ It can only be applied to labels whose bit represenation is orthogonal. Imagine 
 
    As you can see you can't use too many ```orth``` arguments.
  - ```(where_ filt)``` This is like the WHERE you know from SQL or Cypher. The only difference to Cypher is that it only applies to one edge specifier. If the WHERE should be applied globally on several edge specifiers, you have to do this calculation yourself. TODO: Example
- - ```(several 1…3)``` Not implemented yet. But should be equivalent to ```(m)-[*1..3]->(n)``` in Neo4j.
+ - ```(1…3)``` (Alt Gr + .) or ```(1...3)``` means that the edge has to be followed between 1 and 3 times.
+   Should be equivalent to ```(m)-[*1..3]->(n)``` in Neo4j.
+   ```m --| (edge **) |-->``` means that an arbitrary number of edges is folowed.
+   Should be equivalent to ```(m)-[*]->(n)``` in Neo4j
+
+Directed and undirected edges
+-----------------------------
+
+A normal edge is directed:
+<img src="doc/01.svg" width="300">
+If we connect 0 with with 1, we can take 0 and know that it is connected with 1, but if we take 1, we don't know that there is an incoming edge from 0. Therefore IF it is needed for an algorithm, we add another edge from 1 to 0 and mark it as opposite.
+An undirected edge can be achieved by an edge from 0 to 1, and an edge from 1 to 0.
 
 Evaluating Patterns
 ------------------
@@ -211,7 +222,12 @@ Patterns can be executed in several ways:
 Query Processing
 ----------------
 
-All databases have a strategy how to evaluate a query [efficiently](https://en.wikipedia.org/wiki/Query_optimization). Our strategy is implemented [here](https://github.com/tkvogt/judy-graph-db/blob/54a41b25c516cf232c3364301285444ec91d1cc8/src/JudyGraph/Cypher.hs#L574-L669).
+In most queries the author had an evaluation in mind that is executed from left to right.
+This is quicker because no evaluation strategy has to be found. Use ```qtemp```, ```qtable```
+ - ```query <- qtemp jgraph (p --> v)```
+ - ```query <- qtable jgraph (p --> v)```
+
+Other queries can be very slow without an evaluation strategy, thats why all databases have a strategy how to evaluate a query [efficiently](https://en.wikipedia.org/wiki/Query_optimization). Our strategy is implemented [here](https://github.com/tkvogt/judy-graph-db/blob/54a41b25c516cf232c3364301285444ec91d1cc8/src/JudyGraph/Cypher.hs#L574-L669).
 
 Sketch of how this works:
  - Differentiate three complexity classes for node specifiers:

@@ -141,8 +141,13 @@ Variable length (between 1 and 5) path in relationships from m to n.
 
 #### judy-graph-db ####
 ```haskell
-m <--| r |-- n
+m --| r |--> n
   where r = edge (1…5)
+```
+
+```haskell
+m --| r |--> n
+  where r = edge (1...5)
 ```
 
 ---
@@ -153,10 +158,9 @@ Variable length path of any number of relationships from m to n.
 
 #### judy-graph-db ####
 ```haskell
-m <--| r |-- n
-  where r = edge (1…4294967295)
+m --| r |--> n
+  where r = edge **
 ```
-Enough? I'll add another more elegant function if needed. Curretly I never needed this.
 
 ---
 
