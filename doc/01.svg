@@ -8,12 +8,22 @@
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    version="1.1"
+<<<<<<< HEAD
    width="53.512711"
    height="16.70339"
    viewBox="-0.5 -0.5 53.512711 16.70339"
    content="&lt;mxfile userAgent=&quot;Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/70.0.3538.77 Chrome/70.0.3538.77 Safari/537.36&quot; version=&quot;9.4.2&quot; editor=&quot;www.draw.io&quot; type=&quot;device&quot;&gt;&lt;diagram name=&quot;Page-1&quot; id=&quot;42789a77-a242-8287-6e28-9cd8cfd52e62&quot;&gt;7VZNb9swDP01Pnaw5aRNjk3WtJcBAwJs3VGxGVuobKWykjj79aMsyh+xCwQottN8SMRHmpT4HpUE8bqonzU/5N9UCjJgYVoH8deAsTkL8dMCFwewxcwBmRapg6IO2IrfQCC9lx1FCtUg0CgljTgMwUSVJSRmgHGt1XkYtldyWPXAMxgB24TLMfpTpCYnNArDzvECIsup9GJOjh1P3jKtjiXVC1i8bx7nLrjPRfFVzlN17kHxUxCvtVLGrYp6DdK21rfNvbf5wNvuW0NpbnoBeBw9PCzDlCV8uYjvPAMnLo/gz3AvMdlqrzAnbtlcqE3370flHXdVQ+IjBkSLQ905cZXZ751Pg5txmRzu4Z3uEDYow3DLSDwaq3MuDGwPPLGeM0oPsdwUEq0Il03jwR4tRKvtrXUlqhAJOSTfgVy1TK2VVBpdpSptjcpo9QYeRALD5mk9XhA2615I2YvcNA91ZMMLIa3+f4BOeckJJrFHjOypQlyKrEQsQRZBty3p00pMn0AbqHsQ0fwMqgCjLxhC3pnXLo1ktCT73AncqzjvSdtjnEYqazN3ssIFKWtaZfGEpq45LtNHO7j21JJXlSWrTy0eXF9eicDG+GWNL3Nr1sK8+jhcdx5XBtLRtI8aWamjTiiK7irDdQY+anpOxt2+sZsaJDfiNNzWVIupwnclmuEjMuPZkEzUzjCFOw691Z//60TRMFHMrhK5JowSNYy3x75JBLO/dLHw/xfLZy+W0S0yMSIfXixs8c8uFjS7n0Ynwe7vR/z0Bw==&lt;/diagram&gt;&lt;/mxfile&gt;"
    id="svg28"
    sodipodi:docname="01.svg"
+=======
+   width="173px"
+   height="54px"
+   viewBox="-0.5 -0.5 173 54"
+   content="&lt;mxfile userAgent=&quot;Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/70.0.3538.77 Chrome/70.0.3538.77 Safari/537.36&quot; version=&quot;9.4.2&quot; editor=&quot;www.draw.io&quot; type=&quot;device&quot;&gt;&lt;diagram name=&quot;Page-1&quot; id=&quot;42789a77-a242-8287-6e28-9cd8cfd52e62&quot;&gt;7VZNb9swDP01Pnaw5aRNjk3WtJcBAwJs3VGxGVuobKWykjj79aMsyh+xCwQottN8SMRHmpT4HpUE8bqonzU/5N9UCjJgYVoH8deAsTkL8dMCFwewxcwBmRapg6IO2IrfQCC9lx1FCtUg0CgljTgMwUSVJSRmgHGt1XkYtldyWPXAMxgB24TLMfpTpCYnNArDzvECIsup9GJOjh1P3jKtjiXVC1i8bx7nLrjPRfFVzlN17kHxUxCvtVLGrYp6DdK21rfNvbf5wNvuW0NpbnoBeBw9PCzDlCV8uYjvPAMnLo/gz3AvMdlqrzAnbtlcqE3370flHXdVQ+IjBkSLQ905cZXZ751Pg5txmRzu4Z3uEDYow3DLSDwaq3MuDGwPPLGeM0oPsdwUEq0Il03jwR4tRKvtrXUlqhAJOSTfgVy1TK2VVBpdpSptjcpo9QYeRALD5mk9XhA2615I2YvcNA91ZMMLIa3+f4BOeckJJrFHjOypQlyKrEQsQRZBty3p00pMn0AbqHsQ0fwMqgCjLxhC3pnXLo1ktCT73AncqzjvSdtjnEYqazN3ssIFKWtaZfGEpq45LtNHO7j21JJXlSWrTy0eXF9eicDG+GWNL3Nr1sK8+jhcdx5XBtLRtI8aWamjTiiK7irDdQY+anpOxt2+sZsaJDfiNNzWVIupwnclmuEjMuPZkEzUzjCFOw691Z//60TRMFHMrhK5JowSNYy3x75JBLO/dLHw/xfLZy+W0S0yMSIfXixs8c8uFjS7n0Ynwe7vR/z0Bw==&lt;/diagram&gt;&lt;/mxfile&gt;"
+   style="background-color: rgb(255, 255, 255);"
+   id="svg28"
+   sodipodi:docname="ab.svg"
+>>>>>>> a4c09a4c238222c4d9b0124770b912d4bcc7d907
    inkscape:version="0.92.3 (2405546, 2018-03-11)">
   <metadata
      id="metadata32">
@@ -23,7 +33,10 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+<<<<<<< HEAD
         <dc:title></dc:title>
+=======
+>>>>>>> a4c09a4c238222c4d9b0124770b912d4bcc7d907
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -36,12 +49,18 @@
      guidetolerance="10"
      inkscape:pageopacity="0"
      inkscape:pageshadow="2"
+<<<<<<< HEAD
      inkscape:window-width="1575"
      inkscape:window-height="1112"
+=======
+     inkscape:window-width="3066"
+     inkscape:window-height="1689"
+>>>>>>> a4c09a4c238222c4d9b0124770b912d4bcc7d907
      id="namedview30"
      showgrid="false"
      inkscape:zoom="4.3703704"
      inkscape:cx="86.500001"
+<<<<<<< HEAD
      inkscape:cy="-10.29661"
      inkscape:window-x="190"
      inkscape:window-y="111"
@@ -93,6 +112,67 @@
      id="ellipse20"
      r="7.7330508"
      style="fill:#ffffff;stroke:#000000;stroke-width:0.30932203" />
+=======
+     inkscape:cy="27"
+     inkscape:window-x="134"
+     inkscape:window-y="55"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg28" />
+  <defs
+     id="defs2" />
+  <ellipse
+     cx="145"
+     cy="25"
+     rx="25"
+     ry="25"
+     fill="#000000"
+     stroke="#000000"
+     transform="translate(2,3)"
+     opacity="0.25"
+     id="ellipse4" />
+  <ellipse
+     cx="145"
+     cy="25"
+     rx="25"
+     ry="25"
+     fill="#ffffff"
+     stroke="#000000"
+     pointer-events="none"
+     id="ellipse6" />
+  <path
+     d="M 50 25 L 113.63 25"
+     fill="none"
+     stroke="#000000"
+     stroke-miterlimit="10"
+     pointer-events="none"
+     id="path14" />
+  <path
+     d="M 118.88 25 L 111.88 28.5 L 113.63 25 L 111.88 21.5 Z"
+     fill="#000000"
+     stroke="#000000"
+     stroke-miterlimit="10"
+     pointer-events="none"
+     id="path16" />
+  <ellipse
+     cx="25"
+     cy="25"
+     rx="25"
+     ry="25"
+     fill="#000000"
+     stroke="#000000"
+     transform="translate(2,3)"
+     opacity="0.25"
+     id="ellipse18" />
+  <ellipse
+     cx="25"
+     cy="25"
+     rx="25"
+     ry="25"
+     fill="#ffffff"
+     stroke="#000000"
+     pointer-events="none"
+     id="ellipse20" />
+>>>>>>> a4c09a4c238222c4d9b0124770b912d4bcc7d907
   <text
      xml:space="preserve"
      style="font-style:normal;font-weight:normal;font-size:10.66666698px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none"
@@ -105,13 +185,18 @@
        y="35.9375" /></text>
   <text
      xml:space="preserve"
+<<<<<<< HEAD
      style="font-style:normal;font-weight:normal;font-size:24px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none"
+=======
+     style="font-style:normal;font-weight:normal;font-size:24px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;"
+>>>>>>> a4c09a4c238222c4d9b0124770b912d4bcc7d907
      x="18.949154"
      y="26.271187"
      id="text3751"><tspan
        sodipodi:role="line"
        id="tspan3749"
        x="18.949154"
+<<<<<<< HEAD
        y="47.505562" /></text>
   <text
      xml:space="preserve"
@@ -135,4 +220,27 @@
        x="42.178577"
        y="10.187339"
        style="stroke-width:0.30932203">1</tspan></text>
+=======
+       y="49.864937" /></text>
+  <text
+     xml:space="preserve"
+     style="font-style:normal;font-weight:normal;font-size:26.66666603px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none"
+     x="17.576271"
+     y="34.05085"
+     id="text3755"><tspan
+       sodipodi:role="line"
+       id="tspan3753"
+       x="17.576271"
+       y="34.05085">0</tspan></text>
+  <text
+     xml:space="preserve"
+     style="font-style:normal;font-weight:normal;font-size:26.66666603px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none"
+     x="137.47458"
+     y="34.05085"
+     id="text3759"><tspan
+       sodipodi:role="line"
+       id="tspan3757"
+       x="137.47458"
+       y="34.05085">1</tspan></text>
+>>>>>>> a4c09a4c238222c4d9b0124770b912d4bcc7d907
 </svg>
