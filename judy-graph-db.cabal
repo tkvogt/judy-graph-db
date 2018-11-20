@@ -14,7 +14,7 @@ data-files:  benchmark/*.txt
 
 library
   hs-source-dirs:      src
-  exposed-modules:     JudyGraph, JudyGraph.FastAccess, JudyGraph.Enum, JudyGraph.Cypher
+  exposed-modules:     JudyGraph, JudyGraph.FastAccess, JudyGraph.Enum, JudyGraph.Table, JudyGraph.Cypher
   other-modules:       Paths_judy_graph_db
   build-depends:       base >= 4.7 && < 5
                      , bytestring

@@ -17,7 +17,7 @@ main = do
   jgraph <- J.fromListE False nodes dirEdges [] ranges
 
   -- Which of the issues that simon has raised reference other issues?
-  query <- temp jgraph (simon --| raises |-- issue --| references |-- issue)
+  query <- temp jgraph True (simon --| raises |-- issue --| references |-- issue)
   putStrLn ("query result: " ++ show query)
 
   main2
@@ -140,7 +140,7 @@ main2 :: IO ()
 main2 = do
   jgraph <- J.fromListE False nodes dirEdges [] ranges
 --  [CN _ p, _, CN _ v, _, CN _ f] <- temp jgraph (packages --> packagesVer --> function)
-  query <- temp jgraph (packages --> packagesVer --> function)
+  query <- temp jgraph True (packages --> packagesVer --> function)
 --  createMem jgraph (p --> v --> appl sort f)
 --  create jgraph dbPath (p --> v --> appl sort f)
   putStrLn ("\nquery result: " ++ show query)

@@ -13,7 +13,7 @@ main = do
   jgraph <- J.fromListE False nodes dirEdges [] ranges
 
   -- Which of the issues that simon has raised reference other issues?
-  query <- table jgraph (simon --| raises |-- issue --| references |-- issue)
+  query <- table jgraph True (simon --| raises |-- issue --| references |-- issue)
   putStrLn ("query result: " ++ show query)
  where
   simon  = node (nodes32 [0]) :: CyN

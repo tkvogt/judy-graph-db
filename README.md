@@ -201,7 +201,7 @@ Directed and undirected edges
 
 A normal edge is directed:
 
-<img src="doc/01.svg" width="300">
+<img src="doc/01.svg" width="200">
 
 If we connect 0 with with 1, we can take 0 and know that it is connected with 1, but if we take 1, we don't know that there is an incoming edge from 0. Therefore IF it is needed for an algorithm, we add another edge from 1 to 0 and mark it as opposite.
 An undirected edge can be achieved by an edge from 0 to 1, and an edge from 1 to 0.
@@ -225,9 +225,9 @@ Query Processing
 ----------------
 
 In most queries the author had an evaluation in mind that is executed from left to right.
-This is quicker because no evaluation strategy has to be found. Use ```qtemp```, ```qtable```
- - ```query <- qtemp jgraph (p --> v)```
- - ```query <- qtable jgraph (p --> v)```
+This is quicker because no evaluation strategy has to be found. Set quickStrat to True:
+ - ```query <- temp jgraph True (p --> v)```
+ - ```query <- table jgraph True (p --> v)```
 
 Other queries can be very slow without an evaluation strategy, thats why all databases have a strategy how to evaluate a query [efficiently](https://en.wikipedia.org/wiki/Query_optimization). Our strategy is implemented [here](https://github.com/tkvogt/judy-graph-db/blob/54a41b25c516cf232c3364301285444ec91d1cc8/src/JudyGraph/Cypher.hs#L574-L669).
 

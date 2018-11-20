@@ -201,7 +201,7 @@ class EdgeAttribute el where
     fastEdgeAttr :: el -> (Bits, Word32)
     fastEdgeAttrBase :: el -> Word32 -- The key that is used for counting
     edgeForward :: el -> Word32 -- 0 if the edge is "in direction", otherwise a value (a bit) that 
-                          -- does not interfere with the rest of the attr (orthogonal attr)
+                      -- does not interfere with the rest of the attr (orthogonal attr)
   --   main attr of the arbitraryKeygraph
   --   e.g. unicode leaves 10 bits of the 32 bits unused, that could be used for the
   --   direction of the edge, if its a right or left edge in a binary tree, etc.
@@ -242,6 +242,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   -- | Build the graph without using the secondary Data.Map graph
   --   If edge already exists and (overwrite == True) overwrite it
   --   otherwise create a new edge and increase counter (that is at index 0)
+  insertNodeEdge :: Bool -> JGraph nl el -> ((Node32, Node32), Maybe nl, Maybe nl, el, Bool)
+                  -> IO (JGraph nl el)
   insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabel, dir) =
       fmap fst $ insertNodeEdgeAttr overwrite jgraph
                                     ((n0, n1), nl0, nl1, Edge32 attr, Edge32 attrBase)

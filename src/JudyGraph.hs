@@ -158,6 +158,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
           dirRev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels, True)
 
+  addNodeCount nodes gr = gr { nodeCountC = (nodeCountC gr) + fromIntegral (length nodes) }
 
   insertNodeEdge overwrite jgraph ((n0,n1), _, _, edgeLabels, dir) = do
     insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels, dir)
@@ -298,13 +299,13 @@ lookupEdge graph (n0,n1) = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelM
 
 instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
          GraphCreateReadUpdate ComplexGraph nl el (CypherNode nl el) where
-  table graph cypherNode
+  table graph quickStrat cypherNode
     | null (cols0 cypherNode) =
       do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
          evalToTableC graph [CN (CypherNode a n True)]
     | otherwise = evalToTableC graph (reverse (cols0 cypherNode))
 
-  temp graph cypherNode
+  temp graph quickStrat cypherNode
     | null (cols0 cypherNode) =
       do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
          return [CN (CypherNode a n False)]
@@ -320,10 +321,11 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) 
 
 instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) =>
          GraphCreateReadUpdate ComplexGraph nl el (CypherEdge nl el) where
-  table graph cypherEdge | null (cols1 cypherEdge) = return []
-                         | otherwise = evalToTableC graph (reverse (cols1 cypherEdge))
+  table graph quickStrat cypherEdge
+      | null (cols1 cypherEdge) = return []
+      | otherwise = evalToTableC graph (reverse (cols1 cypherEdge))
 
-  temp graph cypherEdge
+  temp graph quickStrat cypherEdge
       | null (cols1 cypherEdge) = return []
       | otherwise = fmap (map switchEvalOff . Map.elems . fst)
                          (runOnC graph False emptyDiff (Map.fromList (zip [0..] comps)))

@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, BinaryLiterals #-}
 {-|
 Module      :  SortNodes
 Copyright   :  (C) 2018 Tillmann Vogt
@@ -54,7 +54,7 @@ main :: IO ()
 main = do
   jgraph <- J.fromListE False nodes dirEdges [] ranges :: IO (EnumGraph NodeLabel EdgeLabel)
 --  [CN p, _, CN v, _, CN f, _] 
-  query <- qtable jgraph (f0 --| next |-- function) -- (packages --> packagesVer --> function)
+  query <- table jgraph True (f0 --| next |-- function) -- (packages --> packagesVer --> function)
 --  createMem jgraph (p --> v --> appl sort f)
 --  create jgraph dbPath (p --> v --> appl sort f)
   putStrLn ("query result: " ++ show query) -- show (p,v,f))
