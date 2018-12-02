@@ -190,6 +190,18 @@ It can only be applied to labels whose bit represenation is orthogonal. Imagine 
    0b001, 0b010, 0b011, 0b100, 0b101, 0b110, 0b111 (leaving away 0b000).
 
    As you can see you can't use too many ```orth``` arguments.
+
+   Orthogonal attributes only make sense, when you construct some edges with several attributes.
+   Without orthogonal attributes you would use two edges with an attribute for each edge:
+```haskell
+    edges = [((n0,n1), Nothing, Nothing, [Knows], True)
+             ((n0,n1), Nothing, Nothing, [Loves], True)]
+```
+   With orthogonal attributes we can save some memory and put several orthogonal attributes in one edge:
+```haskell
+    edges = [((n0,n1), Nothing, Nothing, [Knows, Loves], True)]
+```
+
  - ```(where_ filt)``` This is like the WHERE you know from SQL or Cypher. The only difference to Cypher is that it only applies to one edge specifier. If the WHERE should be applied globally on several edge specifiers, you have to do this calculation yourself. TODO: Example
  - ```(1…3)``` (Alt Gr + .) or ```(1...3)``` means that the edge has to be followed between 1 and 3 times.
    Should be equivalent to ```(m)-[*1..3]->(n)``` in Neo4j.
@@ -203,7 +215,8 @@ A normal edge is directed:
 
 <img src="doc/01.svg" width="200">
 
-If we connect 0 with with 1, we can take 0 and know that it is connected with 1, but if we take 1, we don't know that there is an incoming edge from 0. Therefore IF it is needed for an algorithm, we add another edge from 1 to 0 and mark it as opposite.
+If we connect 0 with with 1, we can take 0 and know that it is connected with 1, but if we take 1, we don't know that there is an incoming edge from 0. Therefore IF it is needed for an algorithm, we add another edge from 1 to 0 and mark it as opposite. To mark an edge as opposite we set the highest bit of the edge attr: 0x80000000 .
+You have to keep this in mind when assigning Word32 to Edgelabels.
 An undirected edge can be achieved by an edge from 0 to 1, and an edge from 1 to 0.
 
 Evaluating Patterns

@@ -49,13 +49,13 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node32(..), Edge32(..), E
       -- * Query Evaluation
       GraphCreateReadUpdate(..), evalNode,
       -- * Attributes, Labels,...
-      Attr(..), LabelNodes(..), 
+      Attr(..), LabelNodes(..), NE(..),
       -- * type classes for translation into bits
       NodeAttribute(..), EdgeAttribute(..),
       -- * Node specifiers
       node, anyNode, labels, nodes32, NodeAttr(..), NAttr(..),
       -- * Edge specifiers
-      edge, attr, orth, where_, several, (…), genAttrs, extractVariants, AttrVariants(..),
+      edge, attr, orth, where_, several, (…), (***), genAttrs, extractVariants, AttrVariants(..),
       -- * Syntax helpers
       n32n, n32e
      ) where
@@ -92,9 +92,8 @@ data (NodeAttribute nl, EdgeAttribute el) =>
                      --   Deletions in the first graph are not updated here (too costly)
   complexNodeLabelMap :: Maybe (Map Node32 nl),-- ^ A node attr that doesn't fit into 64bit
   complexEdgeLabelMap :: Maybe (Map (Node32,Node32) [el]),
-  -- ^ An edge attr that doesn't fit into 64bit
-  rangesC :: NonEmpty (RangeStart, nl), -- ^ a nonempty list with an attribute
-                                        --   for every range
+  rangesC :: NonEmpty (RangeStart, nl, [el]), -- ^ a nonempty list with an attribute
+                                              --   for every range
   nodeCountC :: Word32
 }
 
@@ -160,6 +159,38 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
   addNodeCount nodes gr = gr { nodeCountC = (nodeCountC gr) + fromIntegral (length nodes) }
 
+  insertNodeEdgeAttr overwrite jgraph edge = do
+    (gr, res) <- insertNodeEdgeAttr overwrite egraph edge
+    return (jgraph { judyGraphC = judyGraphE gr,
+                     enumGraphC = enumGraph gr,
+                     rangesC    = rangesE gr,
+                     nodeCountC = nodeCountE gr
+                   }, res)
+   where egraph = (EnumGraph (judyGraphC jgraph) (enumGraphC jgraph)
+                             (rangesC jgraph) (nodeCountC jgraph)) :: EnumGraph nl el
+
+  insertCSVEdgeStream jgraph file newEdge = do
+    gr <- insertCSVEdgeStream egraph file newNewEdge
+    return (jgraph { judyGraphC = judyGraphE gr,
+                     enumGraphC = enumGraph gr,
+                     rangesC    = rangesE gr,
+                     nodeCountC = nodeCountE gr })
+   where
+     newNewEdge :: EnumGraph nl el -> [String] -> IO (EnumGraph nl el)
+     newNewEdge gr strs = do
+       newgr <- newEdge (ComplexGraph (judyGraphE gr) (enumGraph gr) Nothing Nothing
+                                      (rangesE gr) (nodeCountE gr)) strs
+       return (EnumGraph (judyGraphC newgr) (enumGraphC newgr)
+                         (rangesC newgr) (nodeCountC newgr))
+       where newgr = newEdge (ComplexGraph (judyGraphE gr) (enumGraph gr) Nothing Nothing
+                                           (rangesE gr) (nodeCountE gr)) strs
+     egraph = (EnumGraph (judyGraphC jgraph) (enumGraphC jgraph)
+                         (rangesC jgraph) (nodeCountC jgraph)) :: EnumGraph nl el
+
+  insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
+  insertCSVEdge newEdge g (Left message)   = return g
+
+
   insertNodeEdge overwrite jgraph ((n0,n1), _, _, edgeLabels, dir) = do
     insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels, dir)
     return (jgraph { complexEdgeLabelMap = Just newEdgeLabelMap })
@@ -183,7 +214,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
         (ComplexGraph j1 enumJ1 complexNodeLabelMap1 complexEdgeLabelMap1 ranges1 n1) = do
 
     (EnumGraph newJGraph newJEnum nm em :: EnumGraph nl el)
-        <- union (EnumGraph j0 enumJ0 ranges0 n0) (EnumGraph j1 enumJ1 ranges1 n1)
+        <- union (EnumGraph j0 enumJ0 ranges0 n0)
+                 (EnumGraph j1 enumJ1 ranges1 n1)
 
     return (ComplexGraph newJGraph newJEnum
             (mapUnion complexNodeLabelMap0 complexNodeLabelMap1)
@@ -256,7 +288,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
 
   nodeCount graph = nodeCountC graph
-  ranges :: Enum nl => ComplexGraph nl el -> NonEmpty (RangeStart, nl)
+  ranges :: Enum nl => ComplexGraph nl el -> NonEmpty (RangeStart, nl, [el])
   ranges graph = rangesC graph
   judyGraph graph = judyGraphC graph
 
@@ -318,6 +350,15 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) 
       | otherwise = fmap snd (runOnC graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols0 cypherNode)
 
+  graphQuery graph quickStrat cypherNode
+      | null (cols0 cypherNode) =
+          do (CypherNode a c b) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+             if quickStrat then qEvalToGraphC graph [CN (CypherNode a c True)]
+                           else  evalToGraphC graph [CN (CypherNode a c True)]
+      | quickStrat = qEvalToGraphC graph (reverse (cols0 cypherNode))
+      | otherwise  =  evalToGraphC graph (reverse (cols0 cypherNode))
+
+  graphCreate gr cypherNode = return gr
 
 instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) =>
          GraphCreateReadUpdate ComplexGraph nl el (CypherEdge nl el) where
@@ -336,6 +377,12 @@ instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el) 
       | otherwise = fmap snd (runOnC graph True emptyDiff (Map.fromList (zip [0..] comps)))
     where comps = reverse (cols1 cypherEdge)
 
+  graphQuery graph quickStrat cypherEdge
+      | null (cols1 cypherEdge) = empty (rangesC graph)
+      | quickStrat = qEvalToGraphC graph (reverse (cols1 cypherEdge))
+      | otherwise  =  evalToGraphC graph (reverse (cols1 cypherEdge))
+
+  graphCreate gr cypherEdge = return gr
 
 -- TODO
 evalToTableC :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
@@ -350,4 +397,17 @@ runOnC :: (Eq nl, Show nl, Show el, Enum nl,
 runOnC graph create (GraphDiff dns newns des newEs) comps =
   return (Map.empty, GraphDiff dns newns des newEs)
 
+-------------------------------------------------------------------------------
+-- Creating a graph TODO
 
+evalToGraphC :: (Eq nl, Show nl, Show el, Enum nl,
+                NodeAttribute nl, EdgeAttribute el, GraphClass graph nl el) =>
+                graph nl el -> [CypherComp nl el] -> IO (graph nl el)
+evalToGraphC graph comps =
+  do return graph
+
+qEvalToGraphC :: (Eq nl, Show nl, Show el, Enum nl,
+                NodeAttribute nl, EdgeAttribute el, GraphClass graph nl el) =>
+                graph nl el -> [CypherComp nl el] -> IO (graph nl el)
+qEvalToGraphC graph comps =
+  do return graph

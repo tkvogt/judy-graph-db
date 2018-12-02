@@ -52,12 +52,12 @@ import qualified JudyGraph as J
 
 main :: IO ()
 main = do
-  jgraph <- J.fromListE False nodes dirEdges [] ranges :: IO (EnumGraph NodeLabel EdgeLabel)
+--  jgraph <- J.fromListE False nodes dirEdges [] ranges :: IO (EnumGraph NodeLabel EdgeLabel)
 --  [CN p, _, CN v, _, CN f, _] 
-  query <- table jgraph True (f0 --| next |-- function) -- (packages --> packagesVer --> function)
+--  query <- table jgraph True (f0 --| next |-- function) -- (packages --> packagesVer --> function)
 --  createMem jgraph (p --> v --> appl sort f)
 --  create jgraph dbPath (p --> v --> appl sort f)
-  putStrLn ("query result: " ++ show query) -- show (p,v,f))
+--  putStrLn ("query result: " ++ show query) -- show (p,v,f))
   putStrLn "Done"
  where
   packages    = node (nodes32 [0]) :: CyN -- (labels [PACKAGE ""]) :: CyN
@@ -82,7 +82,9 @@ main = do
           ]
 
   -- ranges are normally generated automatically from graph files, but here we do it by hand
-  ranges = NonEmpty.fromList [(0, PACKAGE ""), (1, PACKAGEVER ""), (4, FUNCTION F)]
+  ranges = NonEmpty.fromList [(0, PACKAGE "", [PartOf]),
+                              (1, PACKAGEVER "", [PartOf]),
+                              (4, FUNCTION F, [])]
 
   dirEdges :: [(J.Edge, Maybe NodeLabel, Maybe NodeLabel, [EdgeLabel], Bool)]
   dirEdges = map n32e
@@ -130,8 +132,6 @@ instance EdgeAttribute EdgeLabel where
     fastEdgeAttr NextVer  = (8,0x2000001) -- take the 8 highest bits
     fastEdgeAttrBase PartOf  = 0x1000000
     fastEdgeAttrBase NextVer = 0x2000000
-    edgeForward _ = 0
---    addCsvLine _ graph _ = return graph
 
 ---------------------------------------------
 {-

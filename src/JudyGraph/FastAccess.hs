@@ -75,7 +75,7 @@ module JudyGraph.FastAccess (
     -- * Handling Labels
     nodeWithLabel, nodeWithMaybeLabel, nodeLabel,
     hasNodeAttr, extrAttr, newNodeAttr, bitmask, invBitmask,
-    buildWord64, extractFirstWord32, extractSecondWord32,
+    buildWord64, extractFirstWord32, extractSecondWord32, edgeForward,
     -- * Displaying in hex for debugging
     showHex, showHex32
   ) where
@@ -133,13 +133,15 @@ type Edge = (Node32,Node32)
 type RangeStart = Word32
 type Bits = Int
 
+edgeForward = 0x80000000 -- the highest bit of a 32 bit word
+
 -- | A memory efficient way to store a graph with 64 bit key and 32 bit value
 --   (node, edge) ~> node     (32 bit, 32 bit) ~> 32 bit
 data (NodeAttribute nl, EdgeAttribute el) =>
      JGraph nl el = JGraph {
   judyGraphJ :: Judy, -- ^ A Graph with 32 bit keys on the edge
-  rangesJ :: NonEmpty (RangeStart, nl), -- ^ a nonempty list with an attribute for
-                                        --   every range
+  rangesJ :: NonEmpty (RangeStart, nl, [el]), -- ^ a nonempty list with an attribute for
+                       -- every range and assigning which edgelabels are valid in each range
   nodeCountJ :: Word32
 }
 
@@ -147,11 +149,11 @@ data (NodeAttribute nl, EdgeAttribute el) =>
 -- classes
 
 class GraphClass graph nl el where
-  empty :: NonEmpty (RangeStart, nl) -> IO (graph nl el)
+  empty :: NonEmpty (RangeStart, nl, [el]) -> IO (graph nl el)
   isNull :: graph nl el -> IO Bool
   fromList :: Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el], Bool)]
                                      -> [(Edge, Maybe nl, Maybe nl, [el])]
-           -> NonEmpty (RangeStart, nl) -> IO (graph nl el)
+           -> NonEmpty (RangeStart, nl, [el]) -> IO (graph nl el)
   insertNodeEdge ::  Bool -> graph nl el ->  (Edge,Maybe nl,Maybe nl,el,Bool)
                  -> IO (graph nl el)
   -- | Insert several edges using 'insertNodeEdge'
@@ -184,7 +186,7 @@ class GraphClass graph nl el where
 --  allChildNodesFromEdges :: graph nl el -> Node -> [EdgeAttr32] -> IO [Node]
 
   nodeCount :: graph nl el -> Word32
-  ranges :: graph nl el -> NonEmpty (RangeStart, nl)
+  ranges :: graph nl el -> NonEmpty (RangeStart, nl, [el])
   judyGraph :: graph nl el -> Judy
 
 
@@ -200,8 +202,8 @@ class NodeAttribute nl where
 class EdgeAttribute el where
     fastEdgeAttr :: el -> (Bits, Word32)
     fastEdgeAttrBase :: el -> Word32 -- The key that is used for counting
-    edgeForward :: el -> Word32 -- 0 if the edge is "in direction", otherwise a value (a bit) that 
-                      -- does not interfere with the rest of the attr (orthogonal attr)
+--    edgeForward :: el -> Word32 -- 0 if the edge is "in direction", otherwise a value (a bit) that 
+--                      -- does not interfere with the rest of the attr (orthogonal attr)
   --   main attr of the arbitraryKeygraph
   --   e.g. unicode leaves 10 bits of the 32 bits unused, that could be used for the
   --   direction of the edge, if its a right or left edge in a binary tree, etc.
@@ -248,8 +250,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
       fmap fst $ insertNodeEdgeAttr overwrite jgraph
                                     ((n0, n1), nl0, nl1, Edge32 attr, Edge32 attrBase)
     where
-      attr =   (snd (fastEdgeAttr edgeLabel)) + (if dir then 0 else edgeForward edgeLabel)
-      attrBase = (fastEdgeAttrBase edgeLabel) + (if dir then 0 else edgeForward edgeLabel)
+      attr =   (snd (fastEdgeAttr edgeLabel)) + (if dir then 0 else edgeForward)
+      attrBase = (fastEdgeAttrBase edgeLabel) + (if dir then 0 else edgeForward)
 
 
   insertNodeEdgeAttr overwrite jgraph
@@ -373,20 +375,20 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
          filterNode _ = False
 
   nodeCount graph = nodeCountJ graph
-  ranges :: Enum nl => JGraph nl el -> NonEmpty (RangeStart, nl)
+  ranges :: Enum nl => JGraph nl el -> NonEmpty (RangeStart, nl, [el])
   ranges graph = rangesJ graph
   judyGraph graph = judyGraphJ graph
 
 
 emptyJ :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
-          NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
+          NonEmpty (RangeStart, nl, [el]) -> IO (JGraph nl el)
 emptyJ rs = empty rs
 
 
 fromListJ :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
              Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el], Bool)]
                                     -> [(Edge, Maybe nl, Maybe nl, [el])] ->
-             NonEmpty (RangeStart, nl) -> IO (JGraph nl el)
+             NonEmpty (RangeStart, nl, [el]) -> IO (JGraph nl el)
 fromListJ overwrite nodes dirEdges edges ranges =
   fromList overwrite nodes dirEdges edges ranges
 
@@ -440,8 +442,8 @@ hasNodeAttr (Node32 node) nLabel = (node .&. bitmask bits) == w32
 extrAttr :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
             JGraph nl el -> Node32 -> Word32
 extrAttr jgraph (Node32 node) = node .&. bitmask bits
-  where (bits, w32) = fastNodeAttr (snd (NonEmpty.head (ranges jgraph)))
-
+  where (bits, w32) = fastNodeAttr (sec (NonEmpty.head (ranges jgraph)))
+        sec (x,y,z) = y
 
 -- | Change the node attribute of a node-edge
 newNodeAttr :: Bits -> (Word32 -> Word32) -> Word -> Word
@@ -481,8 +483,8 @@ mapNodeJ f jgraph = do
     return jgraph
   where
     j = judyGraph jgraph
-    (bits, _) = fastNodeAttr (snd (NonEmpty.head (ranges jgraph)))
-
+    (bits, _) = fastNodeAttr (sec (NonEmpty.head (ranges jgraph)))
+    sec (x,y,z) = y
 
 -- | Map a function (Node -> Word32 -> Word32) over all nodes that keeps the node index but
 -- changes the node attribute
@@ -499,7 +501,8 @@ mapNodeWithKeyJ f jgraph = do
     return jgraph
   where
     j = judyGraph jgraph
-    (bits, _) = fastNodeAttr (snd (NonEmpty.head (ranges jgraph)))
+    (bits, _) = fastNodeAttr (sec (NonEmpty.head (ranges jgraph)))
+    sec (x,y,z) = y
 
 ------------------------------------------------------------------------------------------
 -- | A node-edge is deleted by deleting the key in the judy array.
@@ -579,8 +582,7 @@ adjacentNodesByAttr jgraph (Node32 node) el = do
 lookupJudyNodes :: Judy -> Node32 -> Edge32 -> Index -> End -> IO [(Edge32, Node32)]
 lookupJudyNodes j (Node32 node) (Edge32 attr) (Node32 i) (Node32 n) = do
     val <- J.lookup key j
-    next <- if i <= n
--- (Debug.Trace.trace ("lJ "++ showHex32 node ++" "++ showHex32 (attr+i) ++" "++ show val) n)
+    next <- if i <= n -- (Debug.Trace.trace ("lJ "++ showHex32 node ++" "++ showHex32 (attr+i) ++" "++ show val) n)
             then lookupJudyNodes j (Node32 node) (Edge32 attr) (Node32 (i+1)) (Node32 n)
             else return []
     return (if isJust val then (Edge32 (attr + i), Node32 (fromJust val)) : next
@@ -616,12 +618,13 @@ nodeLabel ::
   graph nl el -> Node32 -> nl
 nodeLabel jgraph (Node32 node) = nl (ranges jgraph)
   where nl rs | (length rs >= 2) &&
-                node >= fst (NonEmpty.head rs) &&
-                node < fst (head (NonEmpty.tail rs)) = snd (NonEmpty.head rs)
+                node >= first (NonEmpty.head rs) &&
+                node < first (head (NonEmpty.tail rs)) = sec (NonEmpty.head rs)
               -- ((range0,label0):(range1,label1):rs)
-              | length rs == 1 = snd (NonEmpty.head rs)
+              | length rs == 1 = sec (NonEmpty.head rs)
               | otherwise = nl rs
-
+        first (x,y,z) = x
+        sec (x,y,z) = y
 
 {-# INLINE buildWord64 #-}
 buildWord64 :: Word32 -> Word32 -> Word

@@ -10,11 +10,11 @@ import qualified JudyGraph as J
 
 main :: IO ()
 main = do
-  jgraph <- J.fromListE False nodes dirEdges [] ranges
+--  jgraph <- J.fromListE False nodes dirEdges [] ranges
 
   -- Which of the issues that simon has raised reference other issues?
-  query <- table jgraph True (simon --| raises |-- issue --| references |-- issue)
-  putStrLn ("query result: " ++ show query)
+--  query <- table jgraph True (simon --| raises |-- issue --| references |-- issue)
+  putStrLn ("query result: ") -- ++ show query)
  where
   simon  = node (nodes32 [0]) :: CyN
   raises = edge (attr Raises) :: CyE -- (attr Closes) :: CyE
@@ -32,7 +32,10 @@ main = do
            (7, PULL_REQUEST)]
 
   -- ranges are normally generated automatically from graph files, but here we do it by hand
-  ranges = NonEmpty.fromList [(0, PROGRAMMER), (2, ORGANISATION), (3, ISSUE), (7, PULL_REQUEST)]
+  ranges = NonEmpty.fromList [(0, PROGRAMMER, [Raises, Accepts, Closes, BelongtsTO]),
+                              (2, ORGANISATION, []),
+                              (3, ISSUE, [Closes, References]),
+                              (7, PULL_REQUEST, [Closes, References])]
 
   dirEdges :: [(J.Edge, Maybe NodeLabel, Maybe NodeLabel, [EdgeLabel], Bool)]
   dirEdges = map n32e
@@ -75,6 +78,3 @@ instance EdgeAttribute EdgeLabel where
     fastEdgeAttrBase BelongtsTO = 0x4000000
 
     fastEdgeAttrBase References = 0x5000000
-
-    edgeForward _ = 0x80000000
-

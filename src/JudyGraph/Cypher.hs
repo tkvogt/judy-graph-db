@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, FlexibleInstances, MultiParamTypeClasses,
              FunctionalDependencies, UnicodeSyntax, TypeOperators,
-             GeneralizedNewtypeDeriving, AllowAmbiguousTypes, InstanceSigs, ScopedTypeVariables #-}
+             GeneralizedNewtypeDeriving, AllowAmbiguousTypes #-}
 {-|
 Module      :  Cypher
 Description :  Cypher like EDSL to make queries on the graph
@@ -28,7 +28,7 @@ module JudyGraph.Cypher(
          -- * Node specifiers
          node, anyNode, labels, nodes32, NodeAttr(..), NAttr(..),
          -- * Edge specifiers
-         edge, attr, orth, where_, several, (…), genAttrs, extractVariants,
+         edge, attr, orth, where_, several, (…), (***), genAttrs, extractVariants,
          AttrVariants(..),
          -- * Attributes, Labels,...
          Attr(..), LabelNodes(..),
@@ -55,11 +55,11 @@ import           Data.Word(Word8, Word16, Word32)
 import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..), NodeEdge, 
           Node32(..), Edge32(..), NodeAttribute (..), EdgeAttribute(..), Bits(..),
           empty, hasNodeAttr, allChildNodesFromEdges, allChildEdges, adjacentEdgesByAttr,
-          buildWord64, lookupJudyNodes, showHex, showHex32, enumBase)
+          allAttrBases, buildWord64, lookupJudyNodes, showHex, showHex32, edgeForward)
 import JudyGraph.Table(NAttr(..), EAttr(..), NestedLists(..),
                        applyDeep, zipNAttr, flatten, flatten2, flattenEs)
 import System.IO.Unsafe(unsafePerformIO)
-import Debug.Trace
+import Debug.Trace(trace)
 
 ----------------------------------------------------------------------
 -- Query Classes
@@ -114,7 +114,7 @@ infixl 7 <--
 (...) n0 n1 = several n0 n1
 
 -- | variable length path
-(**) = several 0 4294967295
+(***) = several 1 4294967295
 
 infixl 7 ─┤
 infixl 7 ├─
@@ -126,7 +126,7 @@ infixl 7  ⟻
 
 -------------------------------------------------------------------------------------------
 
-data LabelNodes nl = AllNs | Lbl [nl] | Ns [Node32] deriving Show
+data LabelNodes nl = AllNs | Lbl [nl] | Ns [Node32] deriving (Eq, Show)
 
 type Evaluated = Bool
 
@@ -174,6 +174,8 @@ data Attr =
 instance Show Attr where
   show (Attr w32) = "Attr " ++ show w32
   show (Orth w32) = "Orth " ++ show w32
+  show DirL = "DirL "
+  show DirR = "DirR "
   show (EFilterBy f) = "EFilterBy"
   show (Several i0 i1) = show i0 ++ "…" ++ show i1
 
@@ -281,21 +283,24 @@ several n0 n1 = EdgeAttr [Several n0 n1]
 --
 -- > edge (orth Vector0) (orth Vector1) (attr Attr0) (attr Attr1) (attr Attr2)
 -- The order does not matter. See 'extractVariants'.
-genAttrs :: Map (Node32,Node32) [Word32] -> AttrVariants -> Bool -> Word32 -> [Word32]
-genAttrs m vs toTheRight dirBits
-    | null (eFilter vs) = gAttrs
+genAttrs :: Map (Node32,Node32) [Word32] -> AttrVariants -> Bool -> [Edge32] -> [Edge32]
+genAttrs m vs toTheRight allEdges
+    | null (eFilter vs) = map addDir gAttrs
     | otherwise = map addDir (filterBy (head (eFilter vs)) gAttrs)
   where
-    addDir attr | null (dirs vs) = attr
+    addDir attr | null (dirs vs) = Edge32 attr
                 | (toTheRight && leftAr) ||
-                  (not toTheRight && not leftAr) = attr + dirBits
-                | otherwise = attr
+                  (not toTheRight && not leftAr) = Edge32 (attr + edgeForward)
+                | otherwise = Edge32 attr
     leftAr = lar (head (dirs vs)) where lar DirL = True
                                         lar _ = False
     filterBy (EFilterBy f) = filter (f m)
-    gAttrs | null oAttrs = aAttrs
+    gAttrs :: [Word32]
+    gAttrs | null oAttrs && null aAttrs = map (\(Edge32 e) -> e) allEdges
+           | null oAttrs = aAttrs
            | null aAttrs = setProduct oAttrs
-           | otherwise = combineAttrs aAttrs (setProduct oAttrs)
+           | otherwise = aAttrs ++ (setProduct oAttrs)
+                 -- combineAttrs aAttrs (setProduct oAttrs) -- TODO Does this make sense
     aAttrs = map getAW32 (attrs vs) -- added attributes
     oAttrs = map getOW32 (orths vs) -- ortho attributes
     getAW32 (Attr e) = e
@@ -308,6 +313,7 @@ genAttrs m vs toTheRight dirBits
     sp [] es = [sum es]
     sp (a:as) es = (sp as (0:es)) ++
                    (sp as (a:es))
+
 
 -- | Extract the four different attrs in the given list into four separate lists
 extractVariants :: [Attr] -> AttrVariants
@@ -346,7 +352,6 @@ data AttrVariants =
        sev :: [Attr],
        dirs :: [Attr]
      }
-
 
 ----------------------------------------------------------------------------
 -- Creating a table
@@ -406,7 +411,7 @@ instance (NodeAttribute nl, EdgeAttribute el) =>
                                 n1 = CN (CypherNode a1 c1 False)
                                 e  = CE (CypherEdge [DirL] Nothing [] False)
 
-data NE nl = N (LabelNodes nl) | NE [NodeEdge]
+data NE nl = N (LabelNodes nl) | NE [NodeEdge] deriving Eq
 
 instance Show nl => Show (NE nl) where
   show (N ns) = "N " ++ show ns
@@ -524,15 +529,15 @@ evalToTableE :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribu
                 EnumGraph nl el -> [CypherComp nl el] -> IO [NE nl]
 evalToTableE graph comps =
   do (res,_) <- runOnE graph False emptyDiff (Map.fromList (zip [0..] comps))
+--     return (map toNE (Map.elems (trace ("eval" ++ show res) res)))
      return (map toNE (Map.elems res))
-
 
 qEvalToTableE :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
                 EnumGraph nl el -> [CypherComp nl el] -> IO [NE nl]
 qEvalToTableE graph comps =
   do res <- evalLtoR graph False emptyDiff comps
+--     return (map toNE (fst (trace ("qEval" ++ show res) res)))
      return (map toNE (fst res))
-
 
 toNE (CN (CypherNode as c _)) = N (reduceAttrs as [] [])
 toNE (CE (CypherEdge as (Just es) c _)) = NE es
@@ -571,26 +576,26 @@ compl (CN (CypherNode [ns] c eval)) =
 compl (CE (CypherEdge a e c eval)) = (eval, ECompl (length a))
 
 
-minI n i min [] = i -- Debug.Trace.trace ("i " ++ show i) i
-minI n i min ((True, _) : (True, x):cs) = -- Debug.Trace.trace ("eTrue " ++ show i)
+minI n i min [] = i -- trace ("i " ++ show i) i
+minI n i min ((True, _) : (True, x):cs) = -- trace ("eTrue " ++ show i)
              (minI (n+1) i min ((True, x):cs)) -- skip evaluated nodes
 
 minI n i min ((True, NCompl c):(False, e):cs)
-  | c < min   = -- Debug.Trace.trace ("c < min"++ show i)
+  | c < min   = -- trace ("c < min"++ show i)
                 (minI (n+1) n c   cs)
-  | otherwise = -- Debug.Trace.trace ("other " ++ show (i,c,min) )
+  | otherwise = -- trace ("other " ++ show (i,c,min) )
                 (minI (n+1) i min cs)
 
-minI n i min ((True, x):cs) = -- Debug.Trace.trace ("eTrue " ++ show i)
+minI n i min ((True, x):cs) = -- trace ("eTrue " ++ show i)
                               (minI (n+1) i min cs) -- skip evaluated nodes
 
 minI n i min ((False, NCompl c):cs)
-  | c < min   = -- Debug.Trace.trace ("c < min"++ show i)
+  | c < min   = -- trace ("c < min"++ show i)
                 (minI (n+1) n c   cs)
-  | otherwise = -- Debug.Trace.trace ("other " ++ show (i,c,min) )
+  | otherwise = -- trace ("other " ++ show (i,c,min) )
                 (minI (n+1) i min cs)
 
-minI n i min ((False, ECompl c):cs) = -- Debug.Trace.trace ("e " ++ show i)
+minI n i min ((False, ECompl c):cs) = -- trace ("e " ++ show i)
                                       (minI (n+1) i min cs) -- skip edges
 
 
@@ -615,15 +620,16 @@ evalNode graph (CypherNode [AllNodes] c b) =
 
 evalNode graph (CypherNode [Label ls] c b) = do
         return (CypherNode [Nodes lNodes] c b)
-  where lNodes = --Debug.Trace.trace ("sp" ++ show spans) $
+  where lNodes = -- trace ("sp" ++ show spans) $
                  map (Node32 . toEnum . fromIntegral) (concat (map f spans))
         f :: Enum nl => ((Word32,Word32), nl) -> [Word32]
         f ((start,end), nl) | elem (fromEnum nl) ls = [start..end]
                             | otherwise  = []
         rangeList = toList (ranges graph)
-        rangeEnds = map (\x -> x-1) $ (tail (map fst rangeList)) ++ [nodeCount graph]
+        rangeEnds = map (\x -> x-1) $ (tail (map first rangeList)) ++ [nodeCount graph]
         spans = zipWith spanGen rangeList rangeEnds
-        spanGen (r, nl) e = ((r,e), nl)
+        spanGen (r, nl, els) e = ((r,e), nl)
+        first (x,y,z) = x
 
 evalNode graph (CypherNode ns c b) =
         return (CypherNode ns c b)
@@ -645,28 +651,33 @@ evalLtoR graph create (GraphDiff dns newns des newdEs) (n0:e0:n1:comps)
   | otherwise = do
      evalCenter <- if unEv n0 then evalComp graph n0 else return n0
      let startNs = extractNodes evalCenter :: [NAttr]
-     (cNAdj, nEs, ns, (delEs,newNEs), count) <- walkPaths graph create startNs True r ([],[]) 1
-     let adjCenter  = CN (CypherNode startNs [] True)
+     (cNAdj, nEs, ns, (delEs,newNEs), count) <- walkPaths graph create startNs [] True r ([],[]) 1
+     let adjCenter = CN (CypherNode startNs [] True)
      let ne = if count == 1 then Just (concat (map nodeEdges nEs))
                             else Nothing -- only show edges when there is length 1 path
      let restrEdges = CE (CypherEdge [] ne [] True)
-     let restrNodes = CN (CypherNode ns [] True)
+     let restrNodes = -- trace (show (cNAdj, nEs, ns, (delEs,newNEs), count))
+                                         (CN (CypherNode ns [] True))
      (cs, diff) <-
        if noMoreNodesFound ns
        then return ([], GraphDiff dns newns des newdEs)
        else evalLtoR graph create (GraphDiff dns newns (des ++ delEs) (newdEs ++ newNEs))
                                   (restrNodes:comps)
-     return (if null cs then [] else adjCenter : restrEdges : cs, diff)
+     return (if null cs
+             then -- trace ("null cs"++ show (cNAdj, nEs, ns, (delEs,newNEs), count, startNs, r, graph))
+                  []
+             else adjCenter : restrEdges : cs, diff)
  where
   r = unCE e0
-  noMoreNodesFound n = -- Debug.Trace.trace ("(n0,e0,n1)"++ show (n0,e0,n1))
-                       (null (head (map flatten n)))
+  noMoreNodesFound n | null (map flatten n) = True
+                     | otherwise = -- trace ("(n0,e0,n1)"++ show (n0,e0,n1))
+                                   (null (head (map flatten n)))
 
 evalLtoR graph create diff [n0]
   | not (startsWithNode n0) =
     error "a query has to start with a node in evalLtoR in Cypher.hs"
   | unEv n0 = do
-     evalCenter <- evalComp graph (Debug.Trace.trace (show n0) n0)
+     evalCenter <- evalComp graph n0 -- (trace (show n0) n0)
      let startNs = extractNodes evalCenter :: [NAttr]
      let restrNodes = CN (CypherNode startNs [] True)
      return ([restrNodes], diff)
@@ -703,7 +714,7 @@ runOnE graph create (GraphDiff dns newns des newEs) comps
  do evalCenter <- evalComp graph (fromJust center)
     let startNs = extractNodes evalCenter :: [NAttr]
     (cNAdj, nEs, newNs, (delEs,newNEs), count) <-
-             walkPaths graph create startNs True lOrR ([],[]) 1 -- TODO True
+             walkPaths graph create startNs [] True lOrR ([],[]) 1 -- TODO True
     let adjCenter  = CN (CypherNode [toNAttr cNAdj] [] True)
     let restrNodes = CN (CypherNode newNs [] True)
     let restrEdges = CE (CypherEdge [] (Just (concat (map nodeEdges nEs))) [] True)
@@ -715,8 +726,8 @@ runOnE graph create (GraphDiff dns newns des newEs) comps
   elems = Map.elems comps
 
   computeComplexity = Map.map compl comps
-  minInd = Debug.Trace.trace ("\nelems " ++ show comps ++"\n"++
-                               (show (Map.elems computeComplexity)))
+  minInd = -- trace ("\nelems " ++ show comps ++"\n"++
+           --                    (show (Map.elems computeComplexity)))
                              (minI 0 0 1000000 (Map.elems computeComplexity))
 
   costLeft  = Map.lookup (minInd - 2) computeComplexity
@@ -724,7 +735,7 @@ runOnE graph create (GraphDiff dns newns des newEs) comps
 
   leftNodes  =          Map.lookup (minInd - 2) comps
   leftEdges  = unCE <$> Map.lookup (minInd - 1) comps
-  center     = Debug.Trace.trace ("minIndex " ++ show minInd) $
+  center     = -- trace ("minIndex " ++ show minInd) $
                Map.lookup minInd comps
   rightEdges = unCE <$> Map.lookup (minInd + 1) comps
   rightNodes =          Map.lookup (minInd + 2) comps
@@ -736,15 +747,15 @@ runOnE graph create (GraphDiff dns newns des newEs) comps
                 -> (CypherComp nl el)
                 -> Map Int (CypherComp nl el) -> Map Int (CypherComp nl el)
   newComponents es ns newCenter
-    | useLeft && isJust leftNodes = Debug.Trace.trace "useLeft1"
+    | useLeft && isJust leftNodes = -- trace "useLeft1"
                                     Map.insert (minInd-2) ns
                                    (Map.insert (minInd-1) es newCenter)
-    | useLeft && isNothing leftNodes = Debug.Trace.trace "useLeft2"
+    | useLeft && isNothing leftNodes = -- trace "useLeft2"
                                        Map.insert (minInd-1) es newCenter
-    | isJust rightNodes =           Debug.Trace.trace "useRight"
+    | isJust rightNodes =           -- trace "useRight"
                                     Map.insert (minInd+2) ns
                                    (Map.insert (minInd+1) es newCenter)
-    | otherwise =                   Debug.Trace.trace "useRight1"
+    | otherwise =                   -- trace "useRight1"
                                     Map.insert (minInd+1) es newCenter
 
   useLeft | (isJust costLeft && isNothing costRight) ||
@@ -761,14 +772,15 @@ nodeEdges (Node32 n, es) = map (\(Edge32 e) -> buildWord64 n e) es
 n32n (n,nl) = (Node32 n, nl)
 n32e ((from,to),ls) = ((Node32 from, Node32 to), Nothing, Nothing, ls, True)
 
+
 -- | If an edge has to be walked repeatedly, eg with "edge (1…3)"
 walkPaths :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
-             EnumGraph nl el -> Bool -> [NAttr] -> Bool -> CypherEdge nl el ->
-             ([(NodeEdge, Node32)], [NodeEdge]) -> Int ->
-             IO ([Node32], [(Node32, [Edge32])], [NAttr], ([(NodeEdge, Node32)], [NodeEdge]), Int)
-walkPaths graph create startNs toTheRight lOrR (startDelEs,startNewNEs) count = do
+             EnumGraph nl el -> Bool -> [NAttr] -> [(Node32, [Edge32])] -> Bool ->
+             CypherEdge nl el -> ([(NodeEdge, Node32)], [NodeEdge]) -> Int ->
+         IO ([Node32], [(Node32, [Edge32])], [NAttr], ([(NodeEdge, Node32)], [NodeEdge]), Int)
+walkPaths graph create startNs oldEs toTheRight lOrR (startDelEs,startNewNEs) count = do
     adjacentEdges <- mapM (applyDeep getEdges) startNs
-    let es = -- Debug.Trace.trace (show startNs ++ " ee " ++ show adjacentEdges) $
+    let es = -- trace ("ee " ++ show (startNs, adjacentEdges)) $
              adjacentEdges :: [EAttr] -- TODO apply WHERE restriction
     newNodes <- zipWithM (zipNAttr graph (allChildNodesFromEdges graph)) startNs es
     let flatEs = map flattenEs es :: [[[Edge32]]]
@@ -776,38 +788,44 @@ walkPaths graph create startNs toTheRight lOrR (startDelEs,startNewNEs) count = 
     (delEs,newNEs) <- if create
                       then overlaps graph (concat $ zipWith3 addNs flatSNs flatEs flatNs)
                       else return ([],[])
-    let ns =
-             -- Debug.Trace.trace ("nn "++ show newNodes ++" "++ show es ++ show (repeatStart, repeatEnd, count))
+    let ns = -- trace ("nn "++ show (newNodes, es, (repeatStart, repeatEnd, count)))
              newNodes -- TODO: If already evaluated at this place,
                     -- choose smaller list and probably reduce node lists in this direction
     let nEdges = concat $ zipWith zip flatSNs flatEs :: [(Node32, [Edge32])]
     let centerNodesAdj = map fst (filter (\(n,es) -> not (null es)) nEdges)
-    if (null nEdges || count >= repeatEnd)
-      then (if null nEdges && (count < repeatStart || count >= (repeatEnd-1))
-            then return ([], [], [], ([],[]), count)
-            else return (centerNodesAdj, [], ns, (delEs,newNEs), count))
-      else walkPaths graph create ns toTheRight lOrR
-                     (startDelEs ++ delEs, startNewNEs ++ newNEs) (count+1)
+    stopRecursion centerNodesAdj ns nEdges (delEs,newNEs)
  where
   flatSNs = map flatten startNs :: [[Node32]]
+
+  stopRecursion centerNodesAdj ns nEdges (delEs,newNEs)
+      | enull && (count == 1 || count < repeatStart) = -- stop recursion, failed query
+        return (-- trace "nc0 "
+                ([], [], [], ([],[]), count))
+      | (not enull) && count >= repeatEnd = -- succesful query result, we could go further but we stop here
+        return (-- trace ("nc1 "++ show (enull,count,repeatStart,repeatEnd,centerNodesAdj, oldEs, startNs))
+                (centerNodesAdj, oldEs, ns, (delEs,newNEs), count))
+      | enull = -- did not reach repeatEnd, but cannot go any further => succesful query result
+        return (-- trace ("nc2 "++ show (enull,count,repeatStart,repeatEnd,centerNodesAdj, oldEs, startNs))
+                (centerNodesAdj, oldEs, startNs, (delEs,newNEs), count))
+      | otherwise = -- trace ("nc3 "++ show (enull,count,ns, nEdges)) $ -- query not finished yet
+                    walkPaths graph create ns nEdges toTheRight lOrR
+                              (startDelEs ++ delEs, startNewNEs ++ newNEs) (count+1)
+    where enull | null (map snd nEdges) = True
+                | otherwise = null (head (map snd nEdges))
+
   getEdges :: Node32 -> IO [Edge32]
-  getEdges n | null (attrE lOrR) =
-   -- Debug.Trace.trace ("attrE" ++ show (unsafePerformIO $ allChildEdges graph n enumBase)) $
-               allChildEdges graph n enumBase
-             | otherwise = -- Debug.Trace.trace ("other" ++ show (n,attrs, attrE lOrR, unsafePerformIO adj))
-                           adj
---   (Debug.Trace.trace ("ac " ++ concat (map showHex32 attrs)) n)) attrs
+  getEdges n = -- trace ("\nattrs" ++ (show (n,attrs,allBases))) $
+               concat <$> mapM (adjacentEdgesByAttr graph n) attrs
     where
-      attrs = genAttrs Map.empty variants toTheRight dirBits
-      adj = concat <$> mapM (adjacentEdgesByAttr graph n) (map Edge32 attrs)
-      dirBits = 0x8000000
+      attrs = genAttrs Map.empty variants toTheRight allBases
+      allBases = unsafePerformIO $ allAttrBases graph n
 
   variants = extractVariants (attrE lOrR)
 
   getSeveral :: AttrVariants -> [Attr]
   getSeveral (AttrVariants _ _ _ sev _) = sev
 
-  (Several repeatStart repeatEnd) | null vs = Several 0 1
+  (Several repeatStart repeatEnd) | null vs = Several 1 1
                                   | otherwise = head vs
     where vs = getSeveral variants
 

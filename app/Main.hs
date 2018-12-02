@@ -39,8 +39,10 @@ main = do
 
   -- ranges are normally generated automatically from graph files,
   -- but here we do it by hand
-  ranges = NonEmpty.fromList [(0, PROGRAMMER), (2, ORGANISATION),
-                              (3, ISSUE), (7, PULL_REQUEST)]
+  ranges = NonEmpty.fromList [(0, PROGRAMMER, [Raises, Accepts, Closes, BelongtsTO]),
+                              (2, ORGANISATION, []),
+                              (3, ISSUE, [Closes, References]),
+                              (7, PULL_REQUEST, [Closes, References])]
 
   dirEdges :: [(J.Edge, Maybe NodeLabel, Maybe NodeLabel, [EdgeLabel], Bool)]
   dirEdges = map n32e
@@ -86,10 +88,7 @@ instance EdgeAttribute EdgeLabel where
   fastEdgeAttrBase Accepts    = 0x2000000
   fastEdgeAttrBase Closes     = 0x3000000
   fastEdgeAttrBase BelongtsTO = 0x4000000
-
   fastEdgeAttrBase References = 0x5000000
-
-  edgeForward _ = 0x80000000
 
 
 instance AddCSVLine EnumGraph NodeLabel EdgeLabel where
@@ -163,7 +162,9 @@ main2 = do
 
   -- ranges are normally generated automatically from graph files,
   -- but here we do it by hand
-  ranges = NonEmpty.fromList [(0, PACKAGE ""), (1, PACKAGEVER ""), (4, FUNCTION F)]
+  ranges = NonEmpty.fromList [(0, PACKAGE "", [PartOf]),
+                              (1, PACKAGEVER "", [PartOf]),
+                              (4, FUNCTION F, [])]
 
   dirEdges :: [(J.Edge, Maybe NodeLabel2, Maybe NodeLabel2, [EdgeLabel2], Bool)]
   dirEdges = map n32e
@@ -211,7 +212,6 @@ instance EdgeAttribute EdgeLabel2 where
     -- What a programmer can do
     fastEdgeAttr PartOf = (8,0x1000001) -- take the 8 highest bits
     fastEdgeAttrBase PartOf = 0x1000000
-    edgeForward _ = 0
 
 ---------------------------------------------
 {-
