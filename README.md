@@ -205,7 +205,8 @@ It can only be applied to labels whose bit represenation is orthogonal. Imagine 
  - ```(where_ filt)``` This is like the WHERE you know from SQL or Cypher. The only difference to Cypher is that it only applies to one edge specifier. If the WHERE should be applied globally on several edge specifiers, you have to do this calculation yourself. TODO: Example
  - ```(1…3)``` (Alt Gr + .) or ```(1...3)``` means that the edge has to be followed between 1 and 3 times.
    Should be equivalent to ```(m)-[*1..3]->(n)``` in Neo4j.
-   ```m --| (edge **) |-->``` means that an arbitrary number of edges is folowed.
+
+   ```m --| (edge ***) |-->``` means that an arbitrary number of edges is folowed.
    Should be equivalent to ```(m)-[*]->(n)``` in Neo4j
 
 Directed and undirected edges

@@ -99,18 +99,28 @@ infixl 7 <--
 
 -----------------------------------------
 -- More beautiful combinators with unicode
+-- Unicode braces ⦃⦄⦗⦘ are not allowed unfortunately
 
-(─┤) x y = (--|) x y -- Unicode braces ⟬⟭⦃⦄⦗⦘ are not allowed
+-- | See '--|'
+(─┤) x y = (--|) x y
+-- | See '|--'
 (├─) x y = (|--) x y
+-- | See '<--|'
 (<─┤) x y = (<--|) x y
+-- | See '|-->'
 (├─>) x y = (|-->) x y
 
+-- | See '~~'
 (⟞⟝) x y = (~~) x y
+-- | See '-->'
 (⟼) x y = (-->) x y
+-- | See '<--'
 (⟻) x y = (<--) x y
 
--- | How often to try an edge, eg 1…3
+-- | How often to try an edge, eg 1…3, use keys AltGr and . to get this symbol, or use 1...3
 (…) n0 n1 = several n0 n1
+
+-- | How often to try an edge, eg 1…3
 (...) n0 n1 = several n0 n1
 
 -- | variable length path
@@ -165,10 +175,8 @@ data Attr =
    | Orth Word32 -- ^Attributes can use all bits
    | DirL        -- ^Left arrow dir bit is added to all other attributes
    | DirR        -- ^Right arrow dir bit is added to all other attributes
-   | EFilterBy (Map (Node32,Node32) [Word32]
-                -> Word32
-                -> Bool) -- ^Attributes are the result of
-                         -- filtering all adjacent edges by a function
+   | EFilterBy (Map Edge32 Bool -> Edge32 -> Bool) -- ^Attributes are the result of
+                                            -- filtering all adjacent edges by a function
    | Several Int Int
 
 instance Show Attr where
@@ -192,10 +200,13 @@ appl f n = CypherNode (map change (attrN n)) (cols0 n) True
         change (Nodes8 ns) = Nodes8 (map (map (map (map (map (map (map f)))))) ns)
         change (Nodes9 ns) = Nodes9 (map (map (map (map (map (map (map (map f))))))) ns)
 
-----------------------------------
+-------------------------------------------------------------------------------------------
 -- EDSL trickery inspired by shake
 
--- edge
+---------------------------------------
+-- | Bundle several edge specifiers, eg 
+--
+-- > edge (***) (attr Knows)
 
 -- | A type annotation, equivalent to the first argument, but in variable argument 
 --   contexts, gives a clue as to what return type is expected (not actually
@@ -264,7 +275,7 @@ orth :: EdgeAttribute el => el -> EdgeAttr
 orth el = EdgeAttr [Orth (fastEdgeAttrBase el)]
 
 -- | Filtering of Attributes with a function
-where_ :: (Map (Node32,Node32) [Word32] -> Word32 -> Bool) -> EdgeAttr
+where_ :: (Map Edge32 Bool -> Edge32 -> Bool) -> EdgeAttr
 where_ f = EdgeAttr [EFilterBy f]
 
 -- | How often to try an edge, the same as …
@@ -283,10 +294,8 @@ several n0 n1 = EdgeAttr [Several n0 n1]
 --
 -- > edge (orth Vector0) (orth Vector1) (attr Attr0) (attr Attr1) (attr Attr2)
 -- The order does not matter. See 'extractVariants'.
-genAttrs :: Map (Node32,Node32) [Word32] -> AttrVariants -> Bool -> [Edge32] -> [Edge32]
-genAttrs m vs toTheRight allEdges
-    | null (eFilter vs) = map addDir gAttrs
-    | otherwise = map addDir (filterBy (head (eFilter vs)) gAttrs)
+genAttrs :: AttrVariants -> Bool -> [Edge32] -> [Edge32]
+genAttrs vs toTheRight allEdges = map addDir gAttrs
   where
     addDir attr | null (dirs vs) = Edge32 attr
                 | (toTheRight && leftAr) ||
@@ -294,7 +303,6 @@ genAttrs m vs toTheRight allEdges
                 | otherwise = Edge32 attr
     leftAr = lar (head (dirs vs)) where lar DirL = True
                                         lar _ = False
-    filterBy (EFilterBy f) = filter (f m)
     gAttrs :: [Word32]
     gAttrs | null oAttrs && null aAttrs = map (\(Edge32 e) -> e) allEdges
            | null oAttrs = aAttrs
@@ -769,7 +777,9 @@ runOnE graph create (GraphDiff dns newns des newEs) comps
 nodeEdges :: (Node32, [Edge32]) -> [NodeEdge]
 nodeEdges (Node32 n, es) = map (\(Edge32 e) -> buildWord64 n e) es
 
+-- | reduce the typing work (see examples)
 n32n (n,nl) = (Node32 n, nl)
+-- | reduce the typing work (see examples)
 n32e ((from,to),ls) = ((Node32 from, Node32 to), Nothing, Nothing, ls, True)
 
 
@@ -780,10 +790,8 @@ walkPaths :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute 
          IO ([Node32], [(Node32, [Edge32])], [NAttr], ([(NodeEdge, Node32)], [NodeEdge]), Int)
 walkPaths graph create startNs oldEs toTheRight lOrR (startDelEs,startNewNEs) count = do
     adjacentEdges <- mapM (applyDeep getEdges) startNs
-    let es = -- trace ("ee " ++ show (startNs, adjacentEdges)) $
-             adjacentEdges :: [EAttr] -- TODO apply WHERE restriction
-    newNodes <- zipWithM (zipNAttr graph (allChildNodesFromEdges graph)) startNs es
-    let flatEs = map flattenEs es :: [[[Edge32]]]
+    newNodes <- zipWithM (zipNAttr graph (allChildNodesFromEdges graph)) startNs adjacentEdges
+    let flatEs = map flattenEs adjacentEdges :: [[[Edge32]]]
     let flatNs = map flatten2 newNodes :: [[[Node32]]]
     (delEs,newNEs) <- if create
                       then overlaps graph (concat $ zipWith3 addNs flatSNs flatEs flatNs)
@@ -814,11 +822,14 @@ walkPaths graph create startNs oldEs toTheRight lOrR (startDelEs,startNewNEs) co
                 | otherwise = null (head (map snd nEdges))
 
   getEdges :: Node32 -> IO [Edge32]
-  getEdges n = -- trace ("\nattrs" ++ (show (n,attrs,allBases))) $
+  getEdges n | null (eFilter variants) = -- trace ("\nattrs" ++ (show (n,attrs,allBases))) $
                concat <$> mapM (adjacentEdgesByAttr graph n) attrs
+             | otherwise = filterBy (head (eFilter variants)) <$>
+                           concat <$> mapM (adjacentEdgesByAttr graph n) attrs
     where
-      attrs = genAttrs Map.empty variants toTheRight allBases
+      attrs = genAttrs variants toTheRight allBases
       allBases = unsafePerformIO $ allAttrBases graph n
+      filterBy (EFilterBy f) = filter (f Map.empty)
 
   variants = extractVariants (attrE lOrR)
 

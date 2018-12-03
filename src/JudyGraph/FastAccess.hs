@@ -107,16 +107,16 @@ import qualified Streaming.With as S
 import           System.IO.Unsafe(unsafePerformIO)
 import Debug.Trace
 
-
-type Judy = J.JudyL Word32
 -- ^ fast and memory efficient: <https://en.wikipedia.org/wiki/Judy_array>
--- type Node     = Word32
--- type EdgeAttr32 = Word32
+type Judy = J.JudyL Word32
 
--- ^The number of nodes is limited by Judy using 64 bit keys
+-- The number of nodes is limited by Judy using 64 bit keys
 --  and 32 bit needed for the edge label
+
 newtype Edge32 = Edge32 Word32
+-- ^ Although both node and edge are Word32 we want to differentiate them
 newtype Node32 = Node32 Word32 deriving (Eq, Ord)
+-- ^ A typesafe Word32
 
 instance Show Edge32 where show (Edge32 e) = "Edge " ++ (showHex32 e)
 instance Show Node32 where show (Node32 n) = "Node " ++ (showHex32 n)
@@ -130,6 +130,7 @@ type NodeEdge = Word
 -- ^ combination of 32 bit (node+attr) and 32 bit edge
 
 type Edge = (Node32,Node32)
+-- ^ A tuple of nodes
 type RangeStart = Word32
 type Bits = Int
 
@@ -146,8 +147,7 @@ data (NodeAttribute nl, EdgeAttribute el) =>
 }
 
 ----------------------------------------------------------------------------------------
--- classes
-
+-- | A general class of functions that all three graphs have to support
 class GraphClass graph nl el where
   empty :: NonEmpty (RangeStart, nl, [el]) -> IO (graph nl el)
   isNull :: graph nl el -> IO Bool
@@ -174,7 +174,7 @@ class GraphClass graph nl el where
   insertCSVEdge :: (NodeAttribute nl, EdgeAttribute el) =>
                    (graph nl el -> [String] -> IO (graph nl el))
                  -> graph nl el -> Either CsvParseException [String] -> IO (graph nl el)
-
+  -- | merge two graphs into one
   union :: graph nl el -> graph nl el -> IO (graph nl el)
   deleteNode  :: graph nl el -> Node32 -> IO (graph nl el)
   deleteNodes :: graph nl el -> [Node32] -> IO (graph nl el)
@@ -626,6 +626,7 @@ nodeLabel jgraph (Node32 node) = nl (ranges jgraph)
         first (x,y,z) = x
         sec (x,y,z) = y
 
+-- | concatenate two Word32 to a Word (64 bit)
 {-# INLINE buildWord64 #-}
 buildWord64 :: Word32 -> Word32 -> Word
 buildWord64 w0 w1
@@ -634,7 +635,7 @@ buildWord64 w0 w1
         pokeByteOff p 4 w1
         peek (castPtr p)
 
-
+-- | extract the first 32 bit of a 64 bit word
 {-# INLINE extractFirstWord32 #-}
 extractFirstWord32 :: Word -> Word32
 extractFirstWord32 w
@@ -642,7 +643,7 @@ extractFirstWord32 w
         pokeByteOff p 0 w
         peek (castPtr p)
 
-
+-- | extract the second 32 bit of a 64 bit word
 {-# INLINE extractSecondWord32 #-}
 extractSecondWord32 :: Word -> Word32
 extractSecondWord32 w
@@ -650,9 +651,10 @@ extractSecondWord32 w
         pokeByteOff p 0 w
         peek (castPtr (plusPtr p 4))
 
-------------------------------------------------
+------------------------------------------------------------------
 -- Debugging
 
+-- | display a 64 bit word so that we can see the bits better
 showHex :: Word -> String
 showHex n = showIt 16 n ""
    where
@@ -662,6 +664,7 @@ showHex n = showIt 16 n ""
                        (y, z) -> let c = intToDigit (fromIntegral z)
                                  in c `seq` showIt (i-1) y (c:r)
 
+-- | display a 32 bit word so that we can see the bits better
 showHex32 :: Word32 -> String
 showHex32 n = showIt 8 n ""
    where
@@ -672,7 +675,7 @@ showHex32 n = showIt 8 n ""
                                  in c `seq` showIt (i-1) y (c:r)
 
 
--- Generate a file that can be displayed for debugging
+-- | Generate a file that can be displayed for debugging
 debugToCSV :: (EdgeAttribute el, Show el) => Edge -> el -> IO ()
 debugToCSV (n0,n1) edgeLabel =
   do Text.appendFile "ghc-core-graph/csv/debugNodes.csv"

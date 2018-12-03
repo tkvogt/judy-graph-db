@@ -56,7 +56,7 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node32(..), Edge32(..), E
       node, anyNode, labels, nodes32, NodeAttr(..), NAttr(..),
       -- * Edge specifiers
       edge, attr, orth, where_, several, (…), (***), genAttrs, extractVariants, AttrVariants(..),
-      -- * Syntax helpers
+      -- * Helpers
       n32n, n32e
      ) where
 
