@@ -280,6 +280,7 @@ allChildEdges jgraph (Node32 node) = do
   indexGen (base, count) = [(base+1)..(base+count+1)]
   mj = enumGraph jgraph
   inRange [] = error "node is not inRange, Enum.hs, allChildEdges" -- should not happen
+  inRange [(start,nl,els)] = (start,nl,els)
   inRange ((start,nl,els):xs) | node <= start = (start,nl,els)
                               | otherwise = inRange xs
   third (x,y,z) = z
@@ -300,6 +301,7 @@ allAttrBases jgraph (Node32 node) = do
   enumBases = map fastEdgeAttrBase ((third . inRange . toList . rangesE) jgraph)
   mj = enumGraph jgraph
   inRange [] = error "node is not inRange, Enum.hs, allAttrBases" -- should not happen
+  inRange [(start,nl,els)] = (start,nl,els)
   inRange ((start,nl,els):xs) | node <= start = (start,nl,els)
                               | otherwise = inRange xs
   third (x,y,z) = z
