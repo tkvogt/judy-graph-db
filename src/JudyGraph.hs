@@ -74,7 +74,7 @@ import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..),
                   RangeStart, emptyJ, emptyE, fromList, fromListJ, fromListE, isNull,
                   insertCSVEdgeStream,
                   buildWord64, nodeWithLabel, nodeWithMaybeLabel, updateNodeEdges,
-                  insertNodeEdges, insertNodeLines,
+                  insertNodeEdges, insertNodeLines, edgeForward,
                   deleteNode, deleteEdge,
                   union, mapNodeJ, mapNodeWithKeyJ,
                   allChildEdges, allChildNodesFromEdges, lookupJudyNodes)
@@ -159,6 +159,28 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
   addNodeCount nodes gr = gr { nodeCountC = (nodeCountC gr) + fromIntegral (length nodes) }
 
+  insertNodeEdges overwrite jgraph nodes es = fmap (addNodeCount nodes) (foldM foldEs jgraph es)
+    where
+      foldEs g ((n0, n1), nl0, nl1, edgeLs, dir) = fmap fst $ insertNodeEdgeAttr overwrite g e
+        where e = ((n0, n1), nl0, nl1, overlay edgeLs, overlay edgeLs)
+              overlay el = Edge32 (sum (map (addDir . snd . fastEdgeAttr) el))
+              addDir attr | dir = attr
+                          | otherwise = attr + edgeForward
+
+  insertNodeEdge overwrite jgraph ((n0,n1), _, _, edgeLabels, dir) = do
+    insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels, dir)
+    return (jgraph { complexEdgeLabelMap = Just newEdgeLabelMap })
+   where
+    nl0 = maybe Nothing (Map.lookup n0) (complexNodeLabelMap jgraph)
+    nl1 = maybe Nothing (Map.lookup n1) (complexNodeLabelMap jgraph)
+
+    -- Using the secondary map for more detailed data
+    oldLabel = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelMap jgraph)
+    newEdgeLabelMap = Map.insert (n0,n1)
+         ((fromMaybe [] oldLabel) ++ [edgeLabels]) -- multi edges between the same nodes
+         (fromMaybe Map.empty (complexEdgeLabelMap jgraph))
+
+
   insertNodeEdgeAttr overwrite jgraph edge = do
     (gr, res) <- insertNodeEdgeAttr overwrite egraph edge
     return (jgraph { judyGraphC = judyGraphE gr,
@@ -189,46 +211,6 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
   insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
   insertCSVEdge newEdge g (Left message)   = return g
-
-
-  insertNodeEdge overwrite jgraph ((n0,n1), _, _, edgeLabels, dir) = do
-    insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels, dir)
-    return (jgraph { complexEdgeLabelMap = Just newEdgeLabelMap })
-   where
-    nl0 = maybe Nothing (Map.lookup n0) (complexNodeLabelMap jgraph)
-    nl1 = maybe Nothing (Map.lookup n1) (complexNodeLabelMap jgraph)
-
-    -- Using the secondary map for more detailed data
-    oldLabel = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelMap jgraph)
-    newEdgeLabelMap = Map.insert (n0,n1)
-         ((fromMaybe [] oldLabel) ++ [edgeLabels]) -- multi edges between the same nodes
-         (fromMaybe Map.empty (complexEdgeLabelMap jgraph))
-
-  --------------------------------------------------------------------------------------
-
-  -- | Make a union of two graphs by making a union of 'complexNodeLabelMap' and 
-  --   'complexEdgeLabelMap' but also calls 'unionJ' for a union of two judy arrays
-  union :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
-           ComplexGraph nl el -> ComplexGraph nl el -> IO (ComplexGraph nl el)
-  union (ComplexGraph j0 enumJ0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0 n0)
-        (ComplexGraph j1 enumJ1 complexNodeLabelMap1 complexEdgeLabelMap1 ranges1 n1) = do
-
-    (EnumGraph newJGraph newJEnum nm em :: EnumGraph nl el)
-        <- union (EnumGraph j0 enumJ0 ranges0 n0)
-                 (EnumGraph j1 enumJ1 ranges1 n1)
-
-    return (ComplexGraph newJGraph newJEnum
-            (mapUnion complexNodeLabelMap0 complexNodeLabelMap1)
-            (mapUnion complexEdgeLabelMap0 complexEdgeLabelMap1)
-            ranges0 -- assuming ranges are global
-            (n0+n1))
-   where
-    mapUnion (Just complexLabelMap0)
-             (Just complexLabelMap1) = Just (Map.union complexLabelMap0 complexLabelMap1)
-    mapUnion Nothing (Just complexLabelMap1) = Just complexLabelMap1
-    mapUnion (Just complexLabelMap0) Nothing = Just complexLabelMap0
-    mapUnion Nothing Nothing = Nothing
-
 
   ---------------------------------------------------------------------------------------
   -- Deletion
@@ -264,11 +246,37 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                           (complexEdgeLabelMap (ComplexGraph j e nm em r n))
     return (ComplexGraph j e nm newEdgeMap r n)
 
+  --------------------------------------------------------------------------------------
+
+  -- | Make a union of two graphs by making a union of 'complexNodeLabelMap' and 
+  --   'complexEdgeLabelMap' but also calls 'unionJ' for a union of two judy arrays
+  union :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
+           ComplexGraph nl el -> ComplexGraph nl el -> IO (ComplexGraph nl el)
+  union (ComplexGraph j0 enumJ0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0 n0)
+        (ComplexGraph j1 enumJ1 complexNodeLabelMap1 complexEdgeLabelMap1 ranges1 n1) = do
+
+    (EnumGraph newJGraph newJEnum nm em :: EnumGraph nl el)
+        <- union (EnumGraph j0 enumJ0 ranges0 n0)
+                 (EnumGraph j1 enumJ1 ranges1 n1)
+
+    return (ComplexGraph newJGraph newJEnum
+            (mapUnion complexNodeLabelMap0 complexNodeLabelMap1)
+            (mapUnion complexEdgeLabelMap0 complexEdgeLabelMap1)
+            ranges0 -- assuming ranges are global
+            (n0+n1))
+   where
+    mapUnion (Just complexLabelMap0)
+             (Just complexLabelMap1) = Just (Map.union complexLabelMap0 complexLabelMap1)
+    mapUnion Nothing (Just complexLabelMap1) = Just complexLabelMap1
+    mapUnion (Just complexLabelMap0) Nothing = Just complexLabelMap0
+    mapUnion Nothing Nothing = Nothing
+
+----------------------------------------------------------------------------------------
 
   adjacentEdgesByAttr jgraph (Node32 node) (Edge32 attr) = do
     n <- fmap (fmap Node32) (J.lookup key j)
     map fst <$> maybe (return [])
-                      (lookupJudyNodes j (Node32 node) (Edge32 attr) (Node32 1)) n
+                      (lookupJudyNodes j (Node32 node) (Edge32 attr) True (Node32 1)) n
    where
     key = buildWord64 node attr
     j = judyGraphC jgraph

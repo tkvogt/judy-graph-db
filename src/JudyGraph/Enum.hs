@@ -107,6 +107,15 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
   addNodeCount nodes gr = gr { nodeCountE = (nodeCountE gr) + fromIntegral (length nodes) }
 
+  insertNodeEdges overwrite jgraph nodes es = fmap (addNodeCount nodes) (foldM foldEs jgraph es)
+    where
+      foldEs g ((n0, n1), nl0, nl1, edgeLs, dir) = fmap fst $ insertNodeEdgeAttr overwrite g e
+        where e = ((n0, n1), nl0, nl1, overlay edgeLs, overlayBase edgeLs)
+              overlay el     = Edge32 (sum (map (addDir . snd . fastEdgeAttr) el))
+              overlayBase el = Edge32 (sum (map (addDir . fastEdgeAttrBase) el))
+              addDir attr | dir = attr
+                          | otherwise = attr + edgeForward
+
   -- | Build the graph without using the secondary Data.Map graph
   --   If edge already exists and (overwrite == True) overwrite it
   --   otherwise create a new edge and increase counter (that is at index 0)
@@ -182,41 +191,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
   insertCSVEdge newEdge g (Left message)   = return g
 
-
-  union g0 g1 = do
-    ((EnumGraph bg be br bn), (EnumGraph sg se sr sn)) <- biggerSmaller g0 g1
-    nodeEs   <- getNodeEdges sg
-    nodeEsMj <- getNodeEdges se
-    insertNE nodeEs   bg
-    insertNE nodeEsMj be
-    return (EnumGraph bg be br bn)
-   where
-    biggerSmaller :: (NodeAttribute nl, EdgeAttribute el) =>
-             EnumGraph nl el -> EnumGraph nl el -> IO (EnumGraph nl el, EnumGraph nl el)
-    biggerSmaller (EnumGraph g0 e0 r0 n0) (EnumGraph g1 e1 r1 n1) = do
-       s0 <- J.size g0
-       s1 <- J.size g1
-       if s0 >= s1 then return ((EnumGraph g0 e0 r0 n0), (EnumGraph g1 e1 r1 n1))
-                   else return ((EnumGraph g1 e1 r1 n1), (EnumGraph g0 e0 r0 n0))
-
-  -- | Introduced for the cypher interface
-  --   Makes a lookup to see how many edges there are
-  -- TODO: Should they also lookup the target nodes?
-  --       Currently Yes, just to make sure they exist
-  adjacentEdgesByAttr jgraph (Node32 node) (Edge32 attr) = do
-    n <- J.lookup key j
-    map fst <$> lu n
-   where
-    key = buildWord64 node attr
-    j = judyGraphE jgraph
-    lu :: Maybe Word32 -> IO [(Edge32, Node32)]
-    lu n | isJust n =
-   --        Debug.Trace.trace ("eAdj "++ show (n,node) ++ showHex32 attr ++" "++ showHex key)
-           lookupJudyNodes j (Node32 node) (Edge32 attr) (Node32 1) (Node32 (fromJust n))
-         | otherwise =
-   --        Debug.Trace.trace ("eAdj2 "++ show (n,node) ++ showHex32 attr ++" "++ showHex key)
-           return []
-
+----------------------------------------------------------------------------------------
   -- | deletes all node-edges that contain this node, because the judy array only stores
   --   node-edges
   deleteNode jgraph (Node32 node) = do
@@ -240,6 +215,43 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     edgesToN1 <- filterEdgesTo jgraph nodeEdges (\(Edge32 n0) -> n0 == n1)
     deleteNodeEdgeListE jgraph edgesToN1
 
+----------------------------------------------------------------------------------------
+
+  union g0 g1 = do
+    ((EnumGraph bg be br bn), (EnumGraph sg se sr sn)) <- biggerSmaller g0 g1
+    nodeEs   <- getNodeEdges sg
+    nodeEsMj <- getNodeEdges se
+    insertNE nodeEs   bg
+    insertNE nodeEsMj be
+    return (EnumGraph bg be br bn)
+   where
+    biggerSmaller :: (NodeAttribute nl, EdgeAttribute el) =>
+             EnumGraph nl el -> EnumGraph nl el -> IO (EnumGraph nl el, EnumGraph nl el)
+    biggerSmaller (EnumGraph g0 e0 r0 n0) (EnumGraph g1 e1 r1 n1) = do
+       s0 <- J.size g0
+       s1 <- J.size g1
+       if s0 >= s1 then return ((EnumGraph g0 e0 r0 n0), (EnumGraph g1 e1 r1 n1))
+                   else return ((EnumGraph g1 e1 r1 n1), (EnumGraph g0 e0 r0 n0))
+
+----------------------------------------------------------------------------------------
+
+  -- | Introduced for the cypher interface
+  --   Makes a lookup to see how many edges there are
+  -- TODO: Should they also lookup the target nodes?
+  --       Currently Yes, just to make sure they exist
+  adjacentEdgesByAttr jgraph (Node32 node) (Edge32 attr) = do
+    n <- J.lookup key j
+    map fst <$> lu n
+   where
+    key = buildWord64 node attr
+    j = judyGraphE jgraph
+    lu :: Maybe Word32 -> IO [(Edge32, Node32)]
+    lu n | isJust n =
+   --        Debug.Trace.trace ("eAdj "++ show (n,node) ++ showHex32 attr ++" "++ showHex key)
+           lookupJudyNodes j (Node32 node) (Edge32 attr) True (Node32 1) (Node32 (fromJust n))
+         | otherwise =
+   --        Debug.Trace.trace ("eAdj2 "++ show (n,node) ++ showHex32 attr ++" "++ showHex key)
+           return []
 
   -- | The Judy array maps a NodeEdge to a target node
   --
@@ -412,7 +424,7 @@ adjacentEdgesByIndex :: (NodeAttribute nl, EdgeAttribute el) =>
 adjacentEdgesByIndex jgraph (Node32 node) (Edge32 attrBase) (start, end) = do
     val <- J.lookup key mj
     if isJust val then fmap (map f) (lookupJudyNodes mj (Node32 node)
-                                                        (Edge32 attrBase) start end)
+                                                        (Edge32 attrBase) True start end)
                   else return []
   where
     key = buildWord64 node attrBase

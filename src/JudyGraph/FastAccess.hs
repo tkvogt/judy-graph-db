@@ -155,15 +155,11 @@ class GraphClass graph nl el where
                                      -> [(Edge, Maybe nl, Maybe nl, [el])]
            -> NonEmpty (RangeStart, nl, [el]) -> IO (graph nl el)
   insertNodeEdge ::  Bool -> graph nl el ->  (Edge,Maybe nl,Maybe nl,el,Bool)
-                 -> IO (graph nl el)
+                      -> IO (graph nl el)
   -- | Insert several edges using 'insertNodeEdge'
   insertNodeEdges :: Bool -> graph nl el -> [(Node32, nl)] -> [(Edge,Maybe nl,Maybe nl,[el],Bool)]
-                  -> IO (graph nl el)
-  insertNodeEdges overwrite jgraph nodes es = fmap (addNodeCount nodes) (foldM foldEs jgraph es)
-    where
-      foldEs g ((n0, n1), nl0, nl1, edgeLs, dir) = foldM (insertNodeEdge overwrite) g
-                                                         (map addN edgeLs)
-        where addN el = ((n0, n1), nl0, nl1, el, dir)
+                      -> IO (graph nl el)
+
   addNodeCount :: [(Node32, nl)] -> graph nl el -> graph nl el
   insertNodeEdgeAttr :: Bool -> graph nl el -> (Edge,Maybe nl,Maybe nl,Edge32,Edge32)
                         -> IO (graph nl el, (Bool, (Node32,Word32)))
@@ -174,16 +170,13 @@ class GraphClass graph nl el where
   insertCSVEdge :: (NodeAttribute nl, EdgeAttribute el) =>
                    (graph nl el -> [String] -> IO (graph nl el))
                  -> graph nl el -> Either CsvParseException [String] -> IO (graph nl el)
-  -- | merge two graphs into one
-  union :: graph nl el -> graph nl el -> IO (graph nl el)
   deleteNode  :: graph nl el -> Node32 -> IO (graph nl el)
   deleteNodes :: graph nl el -> [Node32] -> IO (graph nl el)
   deleteEdge :: (graph nl el) -> Edge -> IO (graph nl el)
+  -- | merge two graphs into one
+  union :: graph nl el -> graph nl el -> IO (graph nl el)
   adjacentEdgesByAttr :: graph nl el -> Node32 -> Edge32 -> IO [Edge32]
   filterEdgesTo :: graph nl el -> [NodeEdge] -> (Edge32 -> Bool) -> IO [NodeEdge]
---  allChildEdges :: graph nl el -> Node -> IO [EdgeAttr32]
---  allChildNodes :: graph nl el -> Node -> IO [Node]
---  allChildNodesFromEdges :: graph nl el -> Node -> [EdgeAttr32] -> IO [Node]
 
   nodeCount :: graph nl el -> Word32
   ranges :: graph nl el -> NonEmpty (RangeStart, nl, [el])
@@ -241,11 +234,20 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   addNodeCount nodes jgraph = jgraph { nodeCountJ = (nodeCountJ jgraph) +
                                                     (fromIntegral (length nodes)) }
 
+  insertNodeEdges overwrite jgraph nodes es = fmap (addNodeCount nodes) (foldM foldEs jgraph es)
+    where
+      foldEs g ((n0, n1), nl0, nl1, edgeLs, dir) = fmap fst $ insertNodeEdgeAttr overwrite g e
+        where e = ((n0, n1), nl0, nl1, overlay edgeLs, overlayBase edgeLs)
+              overlay el     = Edge32 (sum (map (addDir . snd . fastEdgeAttr) el))
+              overlayBase el = Edge32 (sum (map (addDir . fastEdgeAttrBase) el))
+              addDir attr | dir = attr
+                          | otherwise = attr + edgeForward
+
   -- | Build the graph without using the secondary Data.Map graph
   --   If edge already exists and (overwrite == True) overwrite it
   --   otherwise create a new edge and increase counter (that is at index 0)
   insertNodeEdge :: Bool -> JGraph nl el -> ((Node32, Node32), Maybe nl, Maybe nl, el, Bool)
-                  -> IO (JGraph nl el)
+                     -> IO (JGraph nl el)
   insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabel, dir) =
       fmap fst $ insertNodeEdgeAttr overwrite jgraph
                                     ((n0, n1), nl0, nl1, Edge32 attr, Edge32 attrBase)
@@ -307,13 +309,13 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   insertCSVEdge newEdge g (Left message)   = return g
 
 
+-----------------------------------------------------------------------------------------
   -- | Deletes all node-edges that contain this node, because the judy array only stores
   --   node-edges
   --  deleteNode :: (NodeAttribute nl, EdgeAttribute el) =>
   --                JGraph nl el -> Node -> IO (JGraph nl el)
   deleteNode jgraph (Node32 node) = do
-  --    es <- allChildEdges jgraph node
-    let nodeEdges = map (buildWord64 node) [] -- es
+    let nodeEdges = map (buildWord64 node) []
     deleteNodeEdgeListJ jgraph nodeEdges
 
 
@@ -328,11 +330,11 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   deleteEdge :: (NodeAttribute nl, EdgeAttribute el) =>
                 (JGraph nl el) -> Edge -> IO (JGraph nl el)
   deleteEdge jgraph (Node32 n0, Node32 n1) = do
-    -- es <- allChildEdges jgraph n0
-    let nodeEdges = map (buildWord64 n0) [] -- es
+    let nodeEdges = map (buildWord64 n0) []
     edgesToN1 <- filterEdgesTo jgraph nodeEdges (\(Edge32 e) -> e == n1)
     deleteNodeEdgeListJ jgraph edgesToN1
 
+---------------------------------------------------------------------------------------
   -- | Find the bigger one of two judy arrays and insert all (key,value)-pairs from the
   --   smaller judy array into the bigger judy array
   union g0 g1 = do
@@ -349,6 +351,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
        if s0 >= s1 then return ((JGraph g0 r0 n0), (JGraph g1 r1 n1))
                    else return ((JGraph g1 r1 n1), (JGraph g0 r0 n0))
 
+--------------------------------------------------------------------------------------
+
   -- | Introduced for the cypher interface
   --   Makes a lookup to see how many edges there are
   -- TODO: Should they also lookup the target nodes?
@@ -356,7 +360,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   adjacentEdgesByAttr jgraph (Node32 node) (Edge32 attr) = do
     n <- J.lookup key j
     map fst <$> maybe (return [])
-                      (lookupJudyNodes j (Node32 node) (Edge32 attr) (Node32 1))
+                      (lookupJudyNodes j (Node32 node) (Edge32 attr) True (Node32 1))
                       (fmap Node32 n)
 -- (Debug.Trace.trace ("eAdj "++ show n ++" "++ show node ++" "++ showHex32 attr ++" "++ showHex key) n)
    where
@@ -544,15 +548,15 @@ insertNE nodeEdges j = do
 -- | Return a single node
 adjacentNodeByAttr :: (GraphClass graph nl el,
                        NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
-                       graph nl el -> Node32 -> el -> IO (Maybe Node32)
-adjacentNodeByAttr jgraph (Node32 node) el =
+                       graph nl el -> Node32 -> el -> Bool -> IO (Maybe Node32)
+adjacentNodeByAttr jgraph (Node32 node) el dir =
     fmap (fmap Node32) (J.lookup key j)
   where
 --    nl = Debug.Trace.trace "nl " $ nodeLabel jgraph node -- outcomment and you will get an endless loop!?
     (bits, attr) = fastEdgeAttr el
     key = -- Debug.Trace.trace ("adjacentNodeByAttr "++ show node ++" "++ showHex32 attr
           --                    ++" "++ showHex (buildWord64 node attr)) $
-          buildWord64 node attr
+          buildWord64 node (attr + if dir then 0 else edgeForward)
     j = judyGraph jgraph
 
 
@@ -564,32 +568,32 @@ adjacentNodeByAttr jgraph (Node32 node) el =
 -- lookups instead of 100.000 with other libraries.
 adjacentNodesByAttr :: (GraphClass graph nl el,
                         NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
-                       graph nl el -> Node32 -> el -> IO [(Edge32, Node32)]
-adjacentNodesByAttr jgraph (Node32 node) el = do
+                       graph nl el -> Node32 -> el -> Bool -> IO [(Edge32, Node32)]
+adjacentNodesByAttr jgraph (Node32 node) el dir = do
     n <- J.lookup key j
     maybe (return [])
-          (lookupJudyNodes j (Node32 node) (Edge32 attr) (Node32 1))
+          (lookupJudyNodes j (Node32 node) (Edge32 attr) True (Node32 1))
           (fmap Node32 n)
 -- (Debug.Trace.trace ("valAdj "++ show n ++" "++ show node ++" "++ showHex key ++" "++ showHex32 attr) n)
   where
     attr = fastEdgeAttrBase el
-    key = buildWord64 node attr
+    key = buildWord64 node (attr + if dir then 0 else edgeForward)
     j = judyGraph jgraph
 
 
 -- | Recursively increases the index and tries to read a node at
 --   edgeAttr + index
-lookupJudyNodes :: Judy -> Node32 -> Edge32 -> Index -> End -> IO [(Edge32, Node32)]
-lookupJudyNodes j (Node32 node) (Edge32 attr) (Node32 i) (Node32 n) = do
+lookupJudyNodes :: Judy -> Node32 -> Edge32 -> Bool -> Index -> End -> IO [(Edge32, Node32)]
+lookupJudyNodes j (Node32 node) (Edge32 attr) dir (Node32 i) (Node32 n) = do
     val <- J.lookup key j
     next <- if i <= n -- (Debug.Trace.trace ("lJ "++ showHex32 node ++" "++ showHex32 (attr+i) ++" "++ show val) n)
-            then lookupJudyNodes j (Node32 node) (Edge32 attr) (Node32 (i+1)) (Node32 n)
+            then lookupJudyNodes j (Node32 node) (Edge32 newAttr) True (Node32 (i+1)) (Node32 n)
             else return []
-    return (if isJust val then (Edge32 (attr + i), Node32 (fromJust val)) : next
+    return (if isJust val then (Edge32 (newAttr + i), Node32 (fromJust val)) : next
                           else next)
   where
-    key = buildWord64 node (attr + i)
-
+    key = buildWord64 node (newAttr + i)
+    newAttr = attr + if dir then 0 else edgeForward
 
 -- | Return a single node
 lookupNodeEdge :: Judy -> Node32 -> Edge32 -> IO (Maybe Node32)
