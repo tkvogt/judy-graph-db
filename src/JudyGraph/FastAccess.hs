@@ -75,9 +75,9 @@ module JudyGraph.FastAccess (
     -- * Handling Labels
     nodeWithLabel, nodeWithMaybeLabel, nodeLabel,
     hasNodeAttr, extrAttr, newNodeAttr, bitmask, invBitmask,
-    buildWord64, extractFirstWord32, extractSecondWord32, edgeForward,
+    buildWord64, extractFirstWord32, extractSecondWord32, edgeBackward,
     -- * Displaying in hex for debugging
-    showHex, showHex32
+    showHex, showHex32, attrOverlap
   ) where
 
 import           Control.Monad
@@ -87,6 +87,7 @@ import qualified Data.ByteString.Char8 as C
 import           Data.Char (intToDigit)
 import qualified Data.Char8 as C
 import qualified Data.Judy as J
+import           Data.List(group, sort)
 import qualified Data.List.NonEmpty as NonEmpty
 import           Data.List.NonEmpty(NonEmpty(..))
 import qualified Data.Map.Strict as Map
@@ -134,7 +135,7 @@ type Edge = (Node32,Node32)
 type RangeStart = Word32
 type Bits = Int
 
-edgeForward = 0x80000000 -- the highest bit of a 32 bit word
+edgeBackward = 0x80000000 -- the highest bit of a 32 bit word
 
 -- | A memory efficient way to store a graph with 64 bit key and 32 bit value
 --   (node, edge) ~> node     (32 bit, 32 bit) ~> 32 bit
@@ -195,7 +196,7 @@ class NodeAttribute nl where
 class EdgeAttribute el where
     fastEdgeAttr :: el -> (Bits, Word32)
     fastEdgeAttrBase :: el -> Word32 -- The key that is used for counting
---    edgeForward :: el -> Word32 -- 0 if the edge is "in direction", otherwise a value (a bit) that 
+--    edgeBackward :: el -> Word32 -- 0 if the edge is "in direction", otherwise a value (a bit) that 
 --                      -- does not interfere with the rest of the attr (orthogonal attr)
   --   main attr of the arbitraryKeygraph
   --   e.g. unicode leaves 10 bits of the 32 bits unused, that could be used for the
@@ -241,7 +242,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
               overlay el     = Edge32 (sum (map (addDir . snd . fastEdgeAttr) el))
               overlayBase el = Edge32 (sum (map (addDir . fastEdgeAttrBase) el))
               addDir attr | dir = attr
-                          | otherwise = attr + edgeForward
+                          | otherwise = attr + edgeBackward
 
   -- | Build the graph without using the secondary Data.Map graph
   --   If edge already exists and (overwrite == True) overwrite it
@@ -252,8 +253,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
       fmap fst $ insertNodeEdgeAttr overwrite jgraph
                                     ((n0, n1), nl0, nl1, Edge32 attr, Edge32 attrBase)
     where
-      attr =   (snd (fastEdgeAttr edgeLabel)) + (if dir then 0 else edgeForward)
-      attrBase = (fastEdgeAttrBase edgeLabel) + (if dir then 0 else edgeForward)
+      attr =   (snd (fastEdgeAttr edgeLabel)) + (if dir then 0 else edgeBackward)
+      attrBase = (fastEdgeAttrBase edgeLabel) + (if dir then 0 else edgeBackward)
 
 
   insertNodeEdgeAttr overwrite jgraph
@@ -556,7 +557,7 @@ adjacentNodeByAttr jgraph (Node32 node) el dir =
     (bits, attr) = fastEdgeAttr el
     key = -- Debug.Trace.trace ("adjacentNodeByAttr "++ show node ++" "++ showHex32 attr
           --                    ++" "++ showHex (buildWord64 node attr)) $
-          buildWord64 node (attr + if dir then 0 else edgeForward)
+          buildWord64 node (attr + if dir then 0 else edgeBackward)
     j = judyGraph jgraph
 
 
@@ -572,12 +573,11 @@ adjacentNodesByAttr :: (GraphClass graph nl el,
 adjacentNodesByAttr jgraph (Node32 node) el dir = do
     n <- J.lookup key j
     maybe (return [])
-          (lookupJudyNodes j (Node32 node) (Edge32 attr) True (Node32 1))
-          (fmap Node32 n)
--- (Debug.Trace.trace ("valAdj "++ show n ++" "++ show node ++" "++ showHex key ++" "++ showHex32 attr) n)
+          (lookupJudyNodes j (Node32 node) (Edge32 attr) dir (Node32 1))
+          (fmap Node32 n) -- (Debug.Trace.trace ("\nvalAdj "++ show (n,node) ++" "++ showHex key ++" "++ showHex32 attr) n))
   where
     attr = fastEdgeAttrBase el
-    key = buildWord64 node (attr + if dir then 0 else edgeForward)
+    key = buildWord64 node (attr + if dir then 0 else edgeBackward)
     j = judyGraph jgraph
 
 
@@ -586,14 +586,15 @@ adjacentNodesByAttr jgraph (Node32 node) el dir = do
 lookupJudyNodes :: Judy -> Node32 -> Edge32 -> Bool -> Index -> End -> IO [(Edge32, Node32)]
 lookupJudyNodes j (Node32 node) (Edge32 attr) dir (Node32 i) (Node32 n) = do
     val <- J.lookup key j
-    next <- if i <= n -- (Debug.Trace.trace ("lJ "++ showHex32 node ++" "++ showHex32 (attr+i) ++" "++ show val) n)
+    next <- if i <= n
+ --(Debug.Trace.trace ("lJ "++ showHex32 node ++" "++ showHex32 (newAttr+i) ++" "++ show val) n)
             then lookupJudyNodes j (Node32 node) (Edge32 newAttr) True (Node32 (i+1)) (Node32 n)
             else return []
     return (if isJust val then (Edge32 (newAttr + i), Node32 (fromJust val)) : next
                           else next)
   where
     key = buildWord64 node (newAttr + i)
-    newAttr = attr + if dir then 0 else edgeForward
+    newAttr = attr + if dir then 0 else edgeBackward
 
 -- | Return a single node
 lookupNodeEdge :: Judy -> Node32 -> Edge32 -> IO (Maybe Node32)
@@ -687,3 +688,20 @@ debugToCSV (n0,n1) edgeLabel =
      Text.appendFile "ghc-core-graph/csv/debugEdges.csv"
                      (Text.pack (show n0 ++","++ show n1 ++","++ show edgeLabel ++"\n"))
 
+
+-- | fastEdgeAttr and fastEdgeAttrBase should not overlap for all edgeLabels
+--   that are used on one node type. Thats why we return those edge attrs with 
+--   the corresponding node attr that overlap
+-- attrOverlap :: (NodeAttribute nl, EdgeAttribute el) => [(nl, [el])] -> [(nl, [el])]
+attrOverlap nlels = catMaybes (map nodeEdgeAttrOverlap nlels)
+  where nodeEdgeAttrOverlap (nodeLabel, edgeLabels)
+          | null oes  = Nothing
+          | otherwise = Just (nodeLabel, oes)
+          where oes = rmdups (overlapEs edgeLabels)
+                overlapEs (e:es) = (concat (map untup (filter overlap ts))) ++ (overlapEs es)
+                  where ts = map ((,) e) es
+                        untup (a,b) = [a,b]
+                        overlap (el0, el1) = (fastEdgeAttr el0 == fastEdgeAttr el1) ||
+                                          (fastEdgeAttrBase el0 == fastEdgeAttrBase el1)
+                overlapEs _ = []
+        rmdups = map head . group . sort

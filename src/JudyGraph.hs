@@ -74,7 +74,7 @@ import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..),
                   RangeStart, emptyJ, emptyE, fromList, fromListJ, fromListE, isNull,
                   insertCSVEdgeStream,
                   buildWord64, nodeWithLabel, nodeWithMaybeLabel, updateNodeEdges,
-                  insertNodeEdges, insertNodeLines, edgeForward,
+                  insertNodeEdges, insertNodeLines, edgeBackward,
                   deleteNode, deleteEdge,
                   union, mapNodeJ, mapNodeWithKeyJ,
                   allChildEdges, allChildNodesFromEdges, lookupJudyNodes)
@@ -165,7 +165,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
         where e = ((n0, n1), nl0, nl1, overlay edgeLs, overlay edgeLs)
               overlay el = Edge32 (sum (map (addDir . snd . fastEdgeAttr) el))
               addDir attr | dir = attr
-                          | otherwise = attr + edgeForward
+                          | otherwise = attr + edgeBackward
 
   insertNodeEdge overwrite jgraph ((n0,n1), _, _, edgeLabels, dir) = do
     insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels, dir)

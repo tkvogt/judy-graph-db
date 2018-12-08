@@ -27,7 +27,7 @@ module JudyGraph.Enum (
     -- * Handling Labels
     nodeWithLabel, nodeWithMaybeLabel, nodeLabel,
     hasNodeAttr, extrAttr, newNodeAttr, bitmask, invBitmask,
-    buildWord64, extractFirstWord32, extractSecondWord32, edgeForward,
+    buildWord64, extractFirstWord32, extractSecondWord32, edgeBackward,
     -- * Displaying in hex for debugging
     showHex, showHex32
   ) where
@@ -114,7 +114,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
               overlay el     = Edge32 (sum (map (addDir . snd . fastEdgeAttr) el))
               overlayBase el = Edge32 (sum (map (addDir . fastEdgeAttrBase) el))
               addDir attr | dir = attr
-                          | otherwise = attr + edgeForward
+                          | otherwise = attr + edgeBackward
 
   -- | Build the graph without using the secondary Data.Map graph
   --   If edge already exists and (overwrite == True) overwrite it
@@ -123,8 +123,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     fmap fst $ insertNodeEdgeAttr overwrite jgraph
                            ((Node32 n0, Node32 n1), nl0, nl1, Edge32 attr, Edge32 attrBase)
    where
-    attr =   snd (fastEdgeAttr el) + (if dir then 0 else edgeForward)
-    attrBase = fastEdgeAttrBase el + (if dir then 0 else edgeForward)
+    attr =   snd (fastEdgeAttr el) + (if dir then 0 else edgeBackward)
+    attrBase = fastEdgeAttrBase el + (if dir then 0 else edgeBackward)
 
 {-
   insertNodeEdgeAttr over gr ((Node32 n0, n1), nl0, nl1, Edge32 attr, attrBase) = do
@@ -151,7 +151,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     n2 <- J.lookup newValKey j
     let isEdgeNew = isNothing n2
     when (isEdgeNew || (not overwrite)) (J.insert edgeAttrCountKey (edgeAttrCount+1) j)
-    J.insert newValKey n1Key j -- (Debug.Trace.trace ("Enum   "++ show (isEdgeNew, edgeAttrCountKey, (n0,n1), Edge32 (attr + if overwrite then 0 else edgeAttrCount)) ++" "++ show edgeAttrCount ++ "\n") j)
+    J.insert newValKey n1Key j -- (Debug.Trace.trace ("Enum "++ showHex edgeAttrCountKey ++ show (isEdgeNew, (n0,n1), Edge32 (attr + if overwrite then 0 else edgeAttrCount)) ++" "++ show edgeAttrCount ++ "\n") j)
     let newN = fromMaybe (Node32 n1) (fmap Node32 n2)
     if isEdgeNew || (not overwrite)
       then return (jgraph { nodeCountE = (nodeCountE jgraph) + 1},

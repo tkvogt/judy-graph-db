@@ -55,7 +55,7 @@ import           Data.Word(Word8, Word16, Word32)
 import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..), NodeEdge, 
           Node32(..), Edge32(..), NodeAttribute (..), EdgeAttribute(..), Bits(..),
           empty, hasNodeAttr, allChildNodesFromEdges, allChildEdges, adjacentEdgesByAttr,
-          allAttrBases, buildWord64, lookupJudyNodes, showHex, showHex32, edgeForward)
+          allAttrBases, buildWord64, lookupJudyNodes, showHex, showHex32, edgeBackward)
 import JudyGraph.Table(NAttr(..), EAttr(..), NestedLists(..),
                        applyDeep, zipNAttr, flatten, flatten2, flattenEs)
 import System.IO.Unsafe(unsafePerformIO)
@@ -299,7 +299,7 @@ genAttrs vs toTheRight allEdges = map addDir gAttrs
   where
     addDir attr | null (dirs vs) = Edge32 attr
                 | (toTheRight && leftAr) ||
-                  (not toTheRight && not leftAr) = Edge32 (attr + edgeForward)
+                  (not toTheRight && not leftAr) = Edge32 (attr + edgeBackward)
                 | otherwise = Edge32 attr
     leftAr = lar (head (dirs vs)) where lar DirL = True
                                         lar _ = False
@@ -683,7 +683,7 @@ evalLtoR graph create (GraphDiff dns newns des newdEs) (n0:e0:n1:comps)
 
 evalLtoR graph create diff [n0]
   | not (startsWithNode n0) =
-    error "a query has to start with a node in evalLtoR in Cypher.hs"
+    error "a query has to start with a node in evalLtoRGraph in Cypher.hs"
   | unEv n0 = do
      evalCenter <- evalComp graph n0 -- (trace (show n0) n0)
      let startNs = extractNodes evalCenter :: [NAttr]
@@ -692,6 +692,8 @@ evalLtoR graph create diff [n0]
   | otherwise = return ([n0], diff)
 
 evalLtoR graph create diff cs = return ([], diff)
+
+
 
 startsWithNode (CN (CypherNode ns c _)) = True
 startsWithNode _ = False
@@ -873,16 +875,56 @@ overlaps jgraph nes =
 
 
 -------------------------------------------------------------------------------
--- Creating a graph TODO
+-- Creating a graph
 
-evalToGraph :: (Eq nl, Show nl, Show el, Enum nl,
-                NodeAttribute nl, EdgeAttribute el, GraphClass graph nl el) =>
-                graph nl el -> [CypherComp nl el] -> IO (graph nl el)
-evalToGraph graph comps =
+evalToGraph :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
+                EnumGraph nl el -> [CypherComp nl el] -> IO (EnumGraph nl el)
+evalToGraph graph comps = -- TODO
   do return graph
 
-qEvalToGraph :: (Eq nl, Show nl, Show el, Enum nl,
-                NodeAttribute nl, EdgeAttribute el, GraphClass graph nl el) =>
-                graph nl el -> [CypherComp nl el] -> IO (graph nl el)
-qEvalToGraph graph comps =
-  do return graph
+
+qEvalToGraph :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
+                EnumGraph nl el -> [CypherComp nl el] -> IO (EnumGraph nl el)
+qEvalToGraph graph comps = fmap fst (evalLtoRGraph graph False emptyDiff comps)
+
+
+evalLtoRGraph :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
+         EnumGraph nl el -> Bool -> GraphDiff -> [CypherComp nl el] -> IO (EnumGraph nl el, GraphDiff)
+evalLtoRGraph graph create (GraphDiff dns newns des newdEs) (n0:e0:n1:comps)
+  | not (startsWithNode n0) =
+    error "a query has to start with a node in evalLtoRGraph in Cypher.hs"
+  | otherwise = do
+     evalCenter <- if unEv n0 then evalComp graph n0 else return n0
+     let startNs = extractNodes evalCenter :: [NAttr]
+     (cNAdj, nEs, ns, (delEs,newNEs), count) <- walkPaths graph create startNs [] True r ([],[]) 1
+--     let adjCenter = CN (CypherNode startNs [] True)
+     let ne = if count == 1 then Just (concat (map nodeEdges nEs))
+                            else Nothing -- only show edges when there is length 1 path
+--     let restrEdges = CE (CypherEdge [] ne [] True)
+     let restrNodes = -- trace (show (cNAdj, nEs, ns, (delEs,newNEs), count))
+                                         (CN (CypherNode ns [] True))
+     (gr, diff) <-
+       if noMoreNodesFound ns
+       then return (graph, GraphDiff dns newns des newdEs)
+       else evalLtoRGraph graph create (GraphDiff dns newns (des ++ delEs) (newdEs ++ newNEs))
+                                  (restrNodes:comps)
+     isEmpty <- isNull gr
+     return (if isEmpty then graph else graph, diff) -- adjCenter : restrEdges : gr
+ where
+  r = unCE e0
+  noMoreNodesFound n | null (map flatten n) = True
+                     | otherwise = -- trace ("(n0,e0,n1)"++ show (n0,e0,n1))
+                                   (null (head (map flatten n)))
+
+evalLtoRGraph graph create diff [n0]
+  | not (startsWithNode n0) =
+    error "a query has to start with a node in evalLtoRGraph in Cypher.hs"
+  | unEv n0 = do
+     evalCenter <- evalComp graph n0 -- (trace (show n0) n0)
+     let startNs = extractNodes evalCenter :: [NAttr]
+--     let restrNodes = CN (CypherNode startNs [] True)
+     return (graph, diff)
+  | otherwise = return (graph, diff) -- n0
+
+evalLtoRGraph graph create diff _ = return (graph, diff)
+
