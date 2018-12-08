@@ -57,7 +57,7 @@ type CyE = CypherEdge NodeLabel EdgeLabel
 data NodeLabel = PROGRAMMER | ORGANISATION | ISSUE | PULL_REQUEST deriving (Eq, Show, Enum)
 
 -- | Can be complex (like a record). Figure out which attributes are important for filtering edges
-data EdgeLabel = Raises | Accepts | Closes | References | BelongtsTO | EdgeForward deriving Show
+data EdgeLabel = Raises | Accepts | Closes | References | BelongtsTO deriving Show
 
 instance NodeAttribute NodeLabel where
     fastNodeAttr _ = (0, 0) -- we don't use node attrs

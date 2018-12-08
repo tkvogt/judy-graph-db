@@ -41,10 +41,10 @@ cw = do f <- getDataFileName "benchmark/data.txt"
         putStrLn ("getDataFileName " ++ f)
         jgraph <- emptyE ranges
         insertNodeLines jgraph f MAILED
-        query <- table jgraph (number128 --| mailed |-- anybody)
+        query <- table jgraph True (number128 --| mailed |-- anybody)
         putStrLn ("query result: " ++ show query)
   where
-    ranges = NonEmpty.fromList [(0, EMPLOYEE)]
+    ranges = NonEmpty.fromList [(0, EMPLOYEE, [MAILED])]
     number128 = node (nodes32 [128]) :: CyN
     anybody = node anyNode :: CyN
     mailed = edge (attr MAILED) :: CyE
@@ -55,14 +55,14 @@ miw = do f <- getDataFileName "benchmark/data.txt"
          insertNodeLines jgraph f MAILED
          putStrLn ("insertNodeLines")
   where
-    ranges = NonEmpty.fromList [(0, EMPLOYEE)]
+    ranges = NonEmpty.fromList [(0, EMPLOYEE, [MAILED])]
 
 ------------------------------------------------------------------------
 
 type CyN = CypherNode NodeLabel EdgeLabel
 type CyE = CypherEdge NodeLabel EdgeLabel
 
-data EdgeLabel = MAILED | EdgeForward deriving (Show)
+data EdgeLabel = MAILED deriving (Show)
 
 data NodeLabel = EMPLOYEE deriving (Show, Enum, Eq)
 
@@ -71,11 +71,5 @@ instance NodeAttribute NodeLabel where
 
 instance EdgeAttribute EdgeLabel where
     fastEdgeAttr MAILED      = (8,0x1000001) -- take the 8 highest bits
-    fastEdgeAttr EdgeForward = (8,0x80000000) -- the highest bit
-
-    fastEdgeAttrBase MAILED      = 0x1000000
-    fastEdgeAttrBase EdgeForward = 0x80000000
-
-    edgeForward = Just EdgeForward
-    addCsvLine _ graph _ = return graph
+    fastEdgeAttrBase MAILED     = 0x1000000
 
