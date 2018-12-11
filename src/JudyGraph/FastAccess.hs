@@ -586,8 +586,7 @@ adjacentNodesByAttr jgraph (Node32 node) el dir = do
 lookupJudyNodes :: Judy -> Node32 -> Edge32 -> Bool -> Index -> End -> IO [(Edge32, Node32)]
 lookupJudyNodes j (Node32 node) (Edge32 attr) dir (Node32 i) (Node32 n) = do
     val <- J.lookup key j
-    next <- if i <= n
- --(Debug.Trace.trace ("lJ "++ showHex32 node ++" "++ showHex32 (newAttr+i) ++" "++ show val) n)
+    next <- if i <= n -- (Debug.Trace.trace ("lJ "++ showHex32 node ++" "++ showHex32 (newAttr+i) ++" "++ show val) n)
             then lookupJudyNodes j (Node32 node) (Edge32 newAttr) True (Node32 (i+1)) (Node32 n)
             else return []
     return (if isJust val then (Edge32 (newAttr + i), Node32 (fromJust val)) : next

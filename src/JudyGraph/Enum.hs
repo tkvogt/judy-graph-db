@@ -23,7 +23,8 @@ module JudyGraph.Enum (
     deleteNodeEdgeListJ, deleteNodeEdgeListE,
     -- * Query
     adjacentNodesByAttr, adjacentNodeByAttr, lookupJudyNodes, adjacentEdgeCount,
-    allChildEdges, allAttrBases, adjacentEdgesByIndex, allChildNodes, allChildNodesFromEdges,
+    allChildEdges, allChildNodes, allChildNodesFromEdges, allAttrBases,
+    adjacentEdgesByIndex, adjacentNodesByIndex,
     -- * Handling Labels
     nodeWithLabel, nodeWithMaybeLabel, nodeLabel,
     hasNodeAttr, extrAttr, newNodeAttr, bitmask, invBitmask,
@@ -143,7 +144,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     maybeEdgeAttrCount <- J.lookup edgeAttrCountKey j
     let edgeAttrCount = fromMaybe 0 maybeEdgeAttrCount
 
-    insertEnumEdge jgraph (Node32 n0Key) (Edge32 attrBase)
+    insertEnumEdges jgraph (Node32 n0Key) (Node32 n1Key) (Edge32 attrBase)
                           (Edge32 (attr + if overwrite then 0 else edgeAttrCount))
 --    debugToCSV (n0Key,n1Key) edgeLabel
     -------------------------------------
@@ -272,37 +273,45 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
 
 -- | The enumGraph enumerates all child edges
--- and maps to the second 32 bit of the key of all nodeEdges
+--   and maps to the second 32 bit of the key of all nodeEdges
 allChildEdges :: (NodeAttribute nl, EdgeAttribute el) =>
                  EnumGraph nl el -> Node32 -> IO [Edge32]
-allChildEdges jgraph (Node32 node) = do
+allChildEdges jgraph (Node32 node) = map Edge32 <$> (allChilds jgraph (Node32 node) indexGen)
+ where
+  indexGen (base, count) | count < 1 = []
+                         | otherwise = map f [0..(count-1)]
+    where f x = base + x*2+1
+
+
+-- | All adjacent child nodes
+-- | The enumGraph enumerates all child edges
+--   and maps to the second 32 bit of the key of all nodeEdges
+allChildNodes :: (NodeAttribute nl, EdgeAttribute el) =>
+                 EnumGraph nl el -> Node32 -> IO [Node32]
+allChildNodes jgraph (Node32 node) = map Node32 <$> allChilds jgraph (Node32 node) indexGen
+ where
+  indexGen (base, count) | count < 1 = []
+                         | otherwise = map f [0..(count-1)]
+    where f x = base + x*2+2
+
+allChilds :: (NodeAttribute nl, EdgeAttribute el) =>
+                 EnumGraph nl el -> Node32 -> ((Word32,Word32) -> [Word32]) -> IO [Word32]
+allChilds jgraph (Node32 node) indexGen = do
   edgeCounts <- mapM lu edgeCountKeys
   let ecs = map (fromMaybe 0) edgeCounts
   let indexes = concat (map indexGen (zip enumBases ecs))
   let enumKeys = map (buildWord64 node) indexes
   edges <- mapM (\key -> J.lookup key mj) enumKeys
   return ( -- Debug.Trace.trace ("ec " ++ show (node, enumKeys, edgeCounts)) $
-           (map Edge32 (catMaybes edges)))
+           (catMaybes edges))
  where
   lu :: Word -> IO (Maybe Word32)
   lu key = J.lookup key mj
-  enumBases = map fastEdgeAttrBase ((third . inRange . toList . rangesE) jgraph)
+  enumBases = map fastEdgeAttrBase ((third . inRange node . toList . rangesE) jgraph)
   edgeCountKeys :: [Word]
   edgeCountKeys = map (buildWord64 node) enumBases
-  indexGen (base, count) = [(base+1)..(base+count+1)]
   mj = enumGraph jgraph
-  inRange [] = error "node is not inRange, Enum.hs, allChildEdges" -- should not happen
-  inRange [(start,nl,els)] = (start,nl,els)
-  inRange ((start,nl,els):xs) | node <= start = (start,nl,els)
-                              | otherwise = inRange xs
   third (x,y,z) = z
-
--- | All adjacent child nodes
-allChildNodes :: (NodeAttribute nl, EdgeAttribute el) =>
-                 EnumGraph nl el -> Node32 -> IO [Node32]
-allChildNodes jgraph node = do
-  edges <- allChildEdges jgraph node
-  allChildNodesFromEdges jgraph node edges
 
 
 allAttrBases :: (NodeAttribute nl, EdgeAttribute el) =>
@@ -310,13 +319,10 @@ allAttrBases :: (NodeAttribute nl, EdgeAttribute el) =>
 allAttrBases jgraph (Node32 node) = do
   return (map Edge32 enumBases)
  where
-  enumBases = map fastEdgeAttrBase ((third . inRange . toList . rangesE) jgraph)
+  enumBases = map fastEdgeAttrBase ((third . inRange node . toList . rangesE) jgraph)
   mj = enumGraph jgraph
-  inRange [] = error "node is not inRange, Enum.hs, allAttrBases" -- should not happen
-  inRange [(start,nl,els)] = (start,nl,els)
-  inRange ((start,nl,els):xs) | node <= start = (start,nl,els)
-                              | otherwise = inRange xs
   third (x,y,z) = z
+
 
 -- | To avoid the recalculation of edges
 allChildNodesFromEdges :: (NodeAttribute nl, EdgeAttribute el) =>
@@ -328,6 +334,12 @@ allChildNodesFromEdges jgraph (Node32 node) edges = do
           (catMaybes nodes))
  where
   j = judyGraphE jgraph
+
+
+inRange node [] = error "node is not inRange, Enum.hs" -- should not happen
+inRange node [(start,nl,els)] = (start,nl,els)
+inRange node ((start,nl,els):xs) | node <= start = (start,nl,els)
+                                 | otherwise = inRange node xs
 
 
 emptyE :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
@@ -378,17 +390,20 @@ insertNodeEdge2 jgraph ((Node32 n0, Node32 n1), Edge32 edgeAttr) = do
     J.insert newValKey n1 (judyGraphE jgraph)
     return jgraph
 
--- | Keep a second judy array that points to all edges
-insertEnumEdge :: (NodeAttribute nl, EdgeAttribute el) =>
-                  EnumGraph nl el -> Node32 -> Edge32 -> Edge32 -> IO ()
-insertEnumEdge jgraph (Node32 n0Key) (Edge32 attrBase) (Edge32 edgeAttr) = do
+-- | Keep a second judy array that points to all edges, nodes
+--   Writes an edge to an edge and an edge to a node with every insert
+insertEnumEdges :: (NodeAttribute nl, EdgeAttribute el) =>
+                  EnumGraph nl el -> Node32 -> Node32 -> Edge32 -> Edge32 -> IO ()
+insertEnumEdges jgraph (Node32 n0Key) (Node32 n1Key) (Edge32 attrBase) (Edge32 edgeAttr) = do
 
     edgeCount <- J.lookup edgeCountKey mj
     if isNothing edgeCount
           then J.insert edgeCountKey 1 mj -- the first edge is added, set counter to 1
           else J.insert edgeCountKey ((fromJust edgeCount)+1) mj -- inc counter by 1
-    let enumKey = buildWord64 n0Key (attrBase+(fromMaybe 0 edgeCount)+1)
-    J.insert enumKey edgeAttr mj
+    let enumKey0 = buildWord64 n0Key (attrBase+(fromMaybe 0 edgeCount)*2+1)
+    let enumKey1 = buildWord64 n0Key (attrBase+(fromMaybe 0 edgeCount)*2+2)
+    J.insert enumKey0 edgeAttr mj
+    J.insert enumKey1 n1Key mj
 --       (Debug.Trace.trace ("enEdge "++ show (n0Key, Edge32 (attrBase+(fromMaybe 0 edgeCount)+1), Node32 edgeAttr)) mj)
   where
     mj = enumGraph jgraph
@@ -420,16 +435,36 @@ deleteNodeEdgeListE jgraph ns = do
 -- 50 chars are used. But some algorithms need all adjacent edges, for example merging
 -- results of leaf nodes in a tree recursively until the root is reached
 adjacentEdgesByIndex :: (NodeAttribute nl, EdgeAttribute el) =>
-                        EnumGraph nl el -> Node32 -> Edge32 ->(Start, End) -> IO [Edge32]
-adjacentEdgesByIndex jgraph (Node32 node) (Edge32 attrBase) (start, end) = do
-    val <- J.lookup key mj
-    if isJust val then fmap (map f) (lookupJudyNodes mj (Node32 node)
-                                                        (Edge32 attrBase) True start end)
-                  else return []
+             EnumGraph nl el -> Node32 -> Edge32 -> Bool -> (Start, End) -> IO [Edge32]
+adjacentEdgesByIndex jgraph (Node32 node) (Edge32 attrBase) dir (Node32 start, Node32 end) = do
+    val <- J.lookup key mj -- (Debug.Trace.trace (show (node,Edge32 attrBase,dir,start,end)) mj)
+    next <- if start <= end
+            then adjacentEdgesByIndex jgraph (Node32 node) (Edge32 attrBase) dir
+                                      (Node32 (start+1), Node32 end)
+            else return []
+    return (if isJust val then (Edge32 (fromJust val)) : next else next)
   where
-    key = buildWord64 node attrBase
+    key = buildWord64 node (attrBase + (start*2+1) + if dir then 0 else edgeBackward)
     mj = enumGraph jgraph
-    f = (\(Node32 n) -> Edge32 n) . snd
+
+
+-- | Nearly the same as adjacentEdgesByIndex, with the difference that a node follows to an edge
+--   This interleaving of nodes and edges in the enum grapg had to be introduced because
+--   sometimes edge+node is not unique and only edge+(node,node) is unique (The same starting 
+--   node with the same edge points to several nodes).
+adjacentNodesByIndex :: (NodeAttribute nl, EdgeAttribute el) =>
+             EnumGraph nl el -> Node32 -> Edge32 -> Bool -> (Start, End) -> IO [Node32]
+adjacentNodesByIndex jgraph (Node32 node) (Edge32 attrBase) dir (Node32 start, Node32 end) = do
+    val <- J.lookup key mj -- (Debug.Trace.trace (show (node,Edge32 attrBase,dir,start,end)) mj)
+    next <- if start <= end
+            then adjacentNodesByIndex jgraph (Node32 node) (Edge32 attrBase) dir
+                                      (Node32 (start+1), Node32 end)
+            else return []
+    return (if isJust val then (Node32 (fromJust val)) : next else next)
+  where
+    key = buildWord64 node (attrBase + (start*2+2) + if dir then 0 else edgeBackward)
+    mj = enumGraph jgraph
+
 
 ---------------------------------------------------------------------------
 -- | The number of adjacent edges
