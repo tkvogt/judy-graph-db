@@ -39,10 +39,10 @@ main = do
 
   -- ranges are normally generated automatically from graph files,
   -- but here we do it by hand
-  ranges = NonEmpty.fromList [(0, PROGRAMMER, [Raises, Accepts, Closes, BelongtsTO]),
-                              (2, ORGANISATION, []),
-                              (3, ISSUE, [Closes, References]),
-                              (7, PULL_REQUEST, [Closes, References])]
+  ranges = NonEmpty.fromList [((0,2), (PROGRAMMER, [Raises, Accepts, Closes, BelongtsTO])),
+                              ((2,1), (ORGANISATION, [])),
+                              ((3,4), (ISSUE, [Closes, References])),
+                              ((7,1), (PULL_REQUEST, [Closes, References]))]
 
   dirEdges :: [(J.Edge, Maybe NodeLabel, Maybe NodeLabel, [EdgeLabel], Bool)]
   dirEdges = map n32e
@@ -68,7 +68,7 @@ data NodeLabel = PROGRAMMER | ORGANISATION | ISSUE | PULL_REQUEST
 
 -- | Can be complex (like a record). Figure out which attributes are important for 
 --   filtering edges
-data EdgeLabel = Raises | Accepts | Closes | References | BelongtsTO | EdgeForward
+data EdgeLabel = Raises | Accepts | Closes | References | BelongtsTO
   deriving Show
 
 instance NodeAttribute NodeLabel where
@@ -162,9 +162,9 @@ main2 = do
 
   -- ranges are normally generated automatically from graph files,
   -- but here we do it by hand
-  ranges = NonEmpty.fromList [(0, PACKAGE "", [PartOf]),
-                              (1, PACKAGEVER "", [PartOf]),
-                              (4, FUNCTION F, [])]
+  ranges = NonEmpty.fromList [((0,1), (PACKAGE "", [PartOf])),
+                              ((1,3), (PACKAGEVER "", [PartOf])),
+                              ((4,3), (FUNCTION F, []))]
 
   dirEdges :: [(J.Edge, Maybe NodeLabel2, Maybe NodeLabel2, [EdgeLabel2], Bool)]
   dirEdges = map n32e

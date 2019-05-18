@@ -54,14 +54,14 @@ main = do
   childEdgesN0 <- allChildEdges jgraph0 n0
   childNodesN0 <- allChildNodes jgraph0 n0
   childNodesFromEdgesN0 <- allChildNodesFromEdges jgraph0 n0 childEdgesN0
-  adjacentCount <- adjacentEdgeCount jgraph0 n0 e
+  adjacentCount <- JudyGraph.Enum.adjacentEdgeCount jgraph0 n0 e
 
   -- graph with only judy
   jgraph1 <- Graph.fromListE False nodes dirEdges [] ranges
   childEdgesJudyN0 <- allChildEdges jgraph1 n0
   childNodesJudyN0 <- allChildNodes jgraph1 n0
   childNodesFromEdgesJudyN0 <- allChildNodesFromEdges jgraph1 n0 childEdgesJudyN0
-  adjacentCountJudy <- adjacentEdgeCount jgraph1 n0 e
+  adjacentCountJudy <- JudyGraph.Enum.adjacentEdgeCount jgraph1 n0 e
 
   -- insert
   jgraph2 <- empty ranges :: IO (EnumGraph NodeLabel EdgeLabel)

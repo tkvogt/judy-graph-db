@@ -178,7 +178,7 @@ The edges that should be followed can be restricted by one or several arguments 
 ```
 
  - ```(attr LABEL)``` follows all LABEL-edges, adding ```attr LABEL_2``` means that these edges are also followed
- - ```(orth LABEL)``` This had to be introduced to allow the "or": ```|``` in ```(m)<-[:KNOWS|:LOVES]-(n)```.
+ - ```(orth LABEL)``` allows to query edges that are composed of several attrs.
 It can only be applied to labels whose bit represenation is orthogonal. Imagine this like vectors in vector space that form a base. And now we have a convenient notation to follow all combinations.
 
    For example as we encode labels with binary: ```LABELA = 0b001, LABELB = 0b010, LABELC = 0b100```.

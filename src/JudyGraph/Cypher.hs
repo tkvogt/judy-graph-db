@@ -634,10 +634,9 @@ evalNode graph (CypherNode [Label ls] c b) = do
         f ((start,end), nl) | elem (fromEnum nl) ls = [start..end]
                             | otherwise  = []
         rangeList = toList (ranges graph)
-        rangeEnds = map (\x -> x-1) $ (tail (map first rangeList)) ++ [nodeCount graph]
+        rangeEnds = map (\x -> x-1) $ (tail (map (fst . fst) rangeList)) ++ [nodeCount graph]
         spans = zipWith spanGen rangeList rangeEnds
-        spanGen (r, nl, els) e = ((r,e), nl)
-        first (x,y,z) = x
+        spanGen ((r,l), (nl, els)) e = ((r,e), nl)
 
 evalNode graph (CypherNode ns c b) =
         return (CypherNode ns c b)

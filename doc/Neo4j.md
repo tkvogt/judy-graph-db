@@ -159,7 +159,7 @@ Variable length path of any number of relationships from m to n.
 #### judy-graph-db ####
 ```haskell
 m --| r |--> n
-  where r = edge **
+  where r = edge ***
 ```
 
 ---

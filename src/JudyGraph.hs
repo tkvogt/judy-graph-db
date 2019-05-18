@@ -37,7 +37,7 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node32(..), Edge32(..), E
       -- * Deletion
       deleteNode, deleteNodes, deleteEdge,
       -- * Query
-      isNull, lookupNode, lookupEdge,
+      isNull, lookupNode, lookupEdge, adjacentEdgeCount,
       -- * Changing node labels
       mapNodeJ, mapNodeWithKeyJ,
       -- * Cypher Query
@@ -71,7 +71,7 @@ import           Data.Text(Text)
 import           Data.Word(Word8, Word16, Word32)
 import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..),
                   NodeAttribute(..), EdgeAttribute(..), Edge32(..), Node32(..), Edge,
-                  RangeStart, emptyJ, emptyE, fromList, fromListJ, fromListE, isNull,
+                  RangeStart, RangeLen, emptyJ, emptyE, fromList, fromListJ, fromListE, isNull,
                   insertCSVEdgeStream,
                   buildWord64, nodeWithLabel, nodeWithMaybeLabel, updateNodeEdges,
                   insertNodeEdges, insertNodeLines, edgeBackward,
@@ -92,7 +92,7 @@ data (NodeAttribute nl, EdgeAttribute el) =>
                      --   Deletions in the first graph are not updated here (too costly)
   complexNodeLabelMap :: Maybe (Map Node32 nl),-- ^ A node attr that doesn't fit into 64bit
   complexEdgeLabelMap :: Maybe (Map (Node32,Node32) [el]),
-  rangesC :: NonEmpty (RangeStart, nl, [el]), -- ^ a nonempty list with an attribute
+  rangesC :: NonEmpty ((RangeStart, RangeLen), (nl, [el])), -- ^ a nonempty list with an attribute
                                               --   for every range
   nodeCountC :: Word32
 }
@@ -296,7 +296,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
 
   nodeCount graph = nodeCountC graph
-  ranges :: Enum nl => ComplexGraph nl el -> NonEmpty (RangeStart, nl, [el])
+  ranges :: Enum nl => ComplexGraph nl el -> NonEmpty ((RangeStart,RangeLen), (nl, [el]))
   ranges graph = rangesC graph
   judyGraph graph = judyGraphC graph
 
@@ -334,6 +334,19 @@ lookupNode graph n = maybe Nothing (Map.lookup n) (complexNodeLabelMap graph)
 lookupEdge :: (NodeAttribute nl, EdgeAttribute el) =>
               ComplexGraph nl el -> Edge -> Maybe [el]
 lookupEdge graph (n0,n1) = maybe Nothing (Map.lookup (n0,n1)) (complexEdgeLabelMap graph)
+
+---------------------------------------------------------------------------
+-- | The number of adjacent edges
+adjacentEdgeCount :: (NodeAttribute nl, EdgeAttribute el) =>
+                     ComplexGraph nl el -> Node32 -> Edge32 -> IO Word32
+adjacentEdgeCount jgraph (Node32 node) (Edge32 attrBase) = do
+    -- the first index lookup is the count
+    let edgeCountKey = buildWord64 node attrBase -- (nodeWithMaybeLabel node nl) 0
+    edgeCount <- J.lookup edgeCountKey mj
+    return (fromMaybe 0 edgeCount)
+  where
+--    nl = maybe Nothing (Map.lookup node) (complexNodeLabelMap jgraph)
+    mj = enumGraphC jgraph
 
 ------------------------------------------------------------------------------------------
 
