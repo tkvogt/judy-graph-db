@@ -35,20 +35,24 @@ module JudyGraph.Enum (
 
 import           Control.Monad
 import qualified Data.ByteString.Char8 as C
-import qualified Data.ByteString.Streaming as B
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Char8 as C
+import qualified Data.Csv as CSV
 import qualified Data.Judy as J
 import           Data.List.NonEmpty(NonEmpty(..), toList)
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict(Map)
 import           Data.Maybe(fromJust, isJust, isNothing, maybe, catMaybes, fromMaybe)
+import qualified Data.Vector as V
+import           Data.Vector(Vector)
 import           Data.Text(Text)
+import qualified Data.Text as T
+import           Data.Text.Encoding
 import           Data.Word(Word32)
-import           Streaming (Of, Stream, hoist)
-import           Streaming.Cassava as S
-import qualified Streaming.Prelude as S
-import qualified Streaming.With as S
+import qualified Streamly as S
+import qualified Streamly.Prelude as S
 import           System.IO.Unsafe(unsafePerformIO)
+import           System.IO (IOMode (ReadMode), withFile)
 import qualified JudyGraph.FastAccess as JF
 import           JudyGraph.FastAccess
 import Debug.Trace
@@ -165,11 +169,31 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     -- An edge consists of an attribute and a counter
     edgeAttrCountKey = buildWord64 n0Key attrBase
 
+---------------------------------------------------------
   -- | In a dense graph the edges might be too big to be first stored in a list before
   --   being added to the judy graph. Therefore the edges are streamed from a 
   --   .csv-file line by line and then added to the judy-graph. A function is passed that
   --   can take a line (a list
   --   of strings) and add it to the graph.
+  insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
+                          EnumGraph nl el -> FilePath ->
+                         (EnumGraph nl el -> Either String (Vector Text) -> IO (EnumGraph nl el))
+                       -> IO (EnumGraph nl el)
+  insertCSVEdgeStream graph file newEdge = withFile file ReadMode $ \handle -> do
+    S.foldlM' newEdge graph
+    . S.serially
+    . fmap readLine
+    . S.fromHandle
+    $ handle
+    where
+      readLine :: String -> Either String (Vector Text)
+      readLine line = fmap ((V.map (decodeUtf8 . BL.toStrict)) . V.head) strs
+        where strs = CSV.decode CSV.NoHeader l :: Either String (Vector (Vector BL.ByteString))
+              l = BL.fromStrict (encodeUtf8 (T.pack line))
+
+-----------------------------------------------------------------------------------------
+
+{-
   insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
               EnumGraph nl el -> FilePath ->
              (EnumGraph nl el -> [String] -> IO (EnumGraph nl el)) -> IO (EnumGraph nl el)
@@ -191,6 +215,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
            -> EnumGraph nl el -> Either CsvParseException [String] -> IO (EnumGraph nl el)
   insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
   insertCSVEdge newEdge g (Left message)   = return g
+-}
 
 ----------------------------------------------------------------------------------------
   -- | deletes all node-edges that contain this node, because the judy array only stores

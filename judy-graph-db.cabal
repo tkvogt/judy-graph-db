@@ -24,10 +24,7 @@ library
                      , judy
                      , mtl
                      , semigroups
-                     , streaming
-                     , streaming-cassava
-                     , streaming-bytestring
-                     , streaming-with
+                     , streamly
                      , text
                      , vector
                      , word8

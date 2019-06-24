@@ -82,10 +82,11 @@ module JudyGraph.FastAccess (
 
 import           Control.Monad
 import           Data.Bits((.&.), (.|.))
-import qualified Data.ByteString.Streaming as B
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as C
 import           Data.Char (intToDigit)
 import qualified Data.Char8 as C
+import qualified Data.Csv as CSV
 import qualified Data.Judy as J
 import           Data.List(group, sort)
 import qualified Data.List.NonEmpty as NonEmpty
@@ -97,15 +98,17 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy.IO as Text
 import qualified Data.Text.Lazy as Text
 import           Data.Text(Text)
+import           Data.Text.Encoding
 import           Data.Word(Word32)
+import qualified Data.Vector as V
+import           Data.Vector(Vector)
 import           Foreign.Marshal.Alloc(allocaBytes)
 import           Foreign.Ptr(castPtr, plusPtr)
 import           Foreign.Storable(peek, pokeByteOff)
-import           Streaming (Of, Stream, hoist)
-import           Streaming.Cassava as S
-import qualified Streaming.Prelude as S
-import qualified Streaming.With as S
+import qualified Streamly as S
+import qualified Streamly.Prelude as S
 import           System.IO.Unsafe(unsafePerformIO)
+import           System.IO (IOMode (ReadMode), withFile)
 import Debug.Trace
 
 -- ^ fast and memory efficient: <https://en.wikipedia.org/wiki/Judy_array>
@@ -167,11 +170,11 @@ class GraphClass graph nl el where
                         -> IO (graph nl el, (Bool, (Node32,Word32)))
   insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
                          graph nl el -> FilePath ->
-                         (graph nl el -> [String] -> IO (graph nl el)) -> IO (graph nl el)
+                         (graph nl el -> Either String (Vector Text) -> IO (graph nl el)) -> IO (graph nl el)
   -- | A helper function for insertCSVEdgeStream
   insertCSVEdge :: (NodeAttribute nl, EdgeAttribute el) =>
                    (graph nl el -> [String] -> IO (graph nl el))
-                 -> graph nl el -> Either CsvParseException [String] -> IO (graph nl el)
+                 -> graph nl el -> Either String [String] -> IO (graph nl el)
   deleteNode  :: graph nl el -> Node32 -> IO (graph nl el)
   deleteNodes :: graph nl el -> [Node32] -> IO (graph nl el)
   deleteEdge :: (graph nl el) -> Edge -> IO (graph nl el)
@@ -207,7 +210,7 @@ class AddCSVLine graph nl el where
   addCsvLine :: (NodeAttribute nl, Enum nl, Show nl) =>
                   Map String Word32 -- ^ A map for looking up nodes by their name
                -> graph nl el -- ^ A graph
-               -> [String]    -- ^ A string for each element of the line
+               -> Either String (Vector Text) -- ^ A string for each element of the line
                -> IO (graph nl el) -- ^ The IO action that adds something to the graph
 
 -----------------------------------------------------------------------------------------
@@ -282,36 +285,30 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     n0Key = maybe n0 (nodeWithLabel (Node32 n0)) nl0
     n1Key = maybe n1 (nodeWithLabel (Node32 n1)) nl1
 
-
-  -- | In a dense graph the edges might be too big to be first stored in a list before being
-  --   added to the judy graph. Therefore the edges are streamed from a .csv-file line by
-  --   line and then added to the judy-graph. A function is passed that can take a line
-  --   (a list of strings) and add it to the graph.
+---------------------------------------------------------
+  -- | In a dense graph the edges might be too big to be first stored in a list before
+  --   being added to the judy graph. Therefore the edges are streamed from a 
+  --   .csv-file line by line and then added to the judy-graph. A function is passed that
+  --   can take a line (a list
+  --   of strings) and add it to the graph.
   insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
                           JGraph nl el -> FilePath ->
-                         (JGraph nl el -> [String] -> IO (JGraph nl el))
+                         (JGraph nl el -> Either String (Vector Text) -> IO (JGraph nl el))
                        -> IO (JGraph nl el)
-  insertCSVEdgeStream graph file newEdge = do
-    a <- S.withBinaryFileContents file
-                            ((S.foldM (insertCSVEdge newEdge) (return graph) return) . dec)
-    return (fst (S.lazily a))
-   where
-    dec :: B.ByteString IO () ->
-           Stream (Of (Either CsvParseException [String]))
-                  IO
-                  (Either (CsvParseException, B.ByteString IO ()) ())
-    dec = S.decodeWithErrors S.defaultDecodeOptions NoHeader
-
-
-  -- | A helper function for insertCSVEdgeStream
-  insertCSVEdge :: (NodeAttribute nl, EdgeAttribute el) =>
-                   (JGraph nl el -> [String] -> IO (JGraph nl el))
-                 -> JGraph nl el -> Either CsvParseException [String] -> IO (JGraph nl el)
-  insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
-  insertCSVEdge newEdge g (Left message)   = return g
-
+  insertCSVEdgeStream graph file newEdge = withFile file ReadMode $ \handle -> do
+    S.foldlM' newEdge graph
+    . S.serially
+    . fmap readLine
+    . S.fromHandle
+    $ handle
+    where
+      readLine :: String -> Either String (Vector Text)
+      readLine line = fmap ((V.map (decodeUtf8 . BL.toStrict)) . V.head) strs
+        where strs = CSV.decode CSV.NoHeader l :: Either String (Vector (Vector BL.ByteString))
+              l = BL.fromStrict (encodeUtf8 (T.pack line))
 
 -----------------------------------------------------------------------------------------
+
   -- | Deletes all node-edges that contain this node, because the judy array only stores
   --   node-edges
   --  deleteNode :: (NodeAttribute nl, EdgeAttribute el) =>

@@ -68,6 +68,8 @@ import           Data.Map.Strict(Map)
 import           Data.Maybe(isJust, maybe, fromMaybe)
 import qualified Data.Text as T
 import           Data.Text(Text)
+import qualified Data.Vector as V
+import           Data.Vector(Vector)
 import           Data.Word(Word8, Word16, Word32)
 import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..),
                   NodeAttribute(..), EdgeAttribute(..), Edge32(..), Node32(..), Edge,
@@ -198,7 +200,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                      rangesC    = rangesE gr,
                      nodeCountC = nodeCountE gr })
    where
-     newNewEdge :: EnumGraph nl el -> [String] -> IO (EnumGraph nl el)
+     newNewEdge :: EnumGraph nl el -> Either String (Vector Text) -> IO (EnumGraph nl el)
      newNewEdge gr strs = do
        newgr <- newEdge (ComplexGraph (judyGraphE gr) (enumGraph gr) Nothing Nothing
                                       (rangesE gr) (nodeCountE gr)) strs

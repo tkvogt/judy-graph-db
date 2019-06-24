@@ -92,7 +92,7 @@ instance EdgeAttribute EdgeLabel where
 
 
 instance AddCSVLine EnumGraph NodeLabel EdgeLabel where
-  addCsvLine m graph [vocIndex, str] = return graph
+  addCsvLine m graph (Right a) = return graph -- [vocIndex, str]
 
 ------------------------------------------------------------------------------------------
 
