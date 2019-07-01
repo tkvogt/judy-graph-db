@@ -77,7 +77,7 @@ module JudyGraph.FastAccess (
     hasNodeAttr, extrAttr, newNodeAttr, bitmask, invBitmask,
     buildWord64, extractFirstWord32, extractSecondWord32, edgeBackward,
     -- * Displaying in hex for debugging
-    showHex, showHex32, attrOverlap
+    showHex, showHex32, attrOverlap, backLabel
   ) where
 
 import           Control.Monad
@@ -200,6 +200,7 @@ class NodeAttribute nl where
 class EdgeAttribute el where
     fastEdgeAttr :: el -> (Bits, Word32)
     fastEdgeAttrBase :: el -> Word32 -- The key that is used for counting
+    edgeFromAttr :: Word32 -> el
 --    edgeBackward :: el -> Word32 -- 0 if the edge is "in direction", otherwise a value (a bit) that 
 --                      -- does not interfere with the rest of the attr (orthogonal attr)
   --   main attr of the arbitraryKeygraph
@@ -698,3 +699,9 @@ attrOverlap nlels = catMaybes (map nodeEdgeAttrOverlap nlels)
                                           (fastEdgeAttrBase el0 == fastEdgeAttrBase el1)
                 overlapEs _ = []
         rmdups = map head . group . sort
+
+
+backLabel :: Word32 -> String
+backLabel e | (e .&. edgeBackward) /= 0 = "back "
+            | otherwise = ""
+

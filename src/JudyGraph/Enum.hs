@@ -66,14 +66,15 @@ data (NodeAttribute nl, EdgeAttribute el) =>
                     --   Deletions in the first graph are not updated here (too costly)
   rangesE :: NonEmpty ((RangeStart, RangeLen), (nl, [el])),-- ^ A nonempty list with an attr for every range
                                      -- and assigning which edgelabels are valid in each range
-  nodeCountE :: Word32
+  nodeCountE :: Word32,
+  showEdge :: Word32 -> el
 }
 
 
 
 instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
          Show (EnumGraph nl el) where
-  show (EnumGraph judyGraphE enumGraph rangesE nodeCountE) =
+  show (EnumGraph judyGraphE enumGraph rangesE nodeCountE showEdge) =
          "\ndigraph graphviz {\n"++
          concat (zipWith3 line nodeOrigins edges nodeDests) ++
          "}\n"
@@ -83,7 +84,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
       edges = map extractSecondWord32 $
               unsafePerformIO (J.keys  (unsafePerformIO (J.freeze judyGraphE)))
       nodeDests = unsafePerformIO (J.elems (unsafePerformIO (J.freeze judyGraphE)))
-      line or e dest = show or ++" -> "++ show dest ++" [ label = \""++ show e ++"\" ];\n"
+      line or e dest = show or ++" -> "++ show dest ++" [ label = \""++ 
+                       (backLabel e) ++ show (showEdge e) ++ "\" ];\n"
 
 ------------------------------------------------------------------------------------------
 
@@ -95,10 +97,10 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   empty ranges = do
     j <- J.new :: IO Judy
     mj <- J.new :: IO Judy
-    return (EnumGraph j mj ranges 0)
+    return (EnumGraph j mj ranges 0 edgeFromAttr)
 
   -- | Are the judy arrays of the graph both empty?
-  isNull (EnumGraph graph enumGraph _ _) = do
+  isNull (EnumGraph graph enumGraph _ _ _) = do
     g <- J.null graph
     e <- J.null enumGraph
     return (g && e)
@@ -125,7 +127,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   --   If edge already exists and (overwrite == True) overwrite it
   --   otherwise create a new edge and increase counter (that is at index 0)
   insertNodeEdge overwrite jgraph ((Node32 n0, Node32 n1), nl0, nl1, el, dir) =
-    -- Debug.Trace.trace ("ins attr"++ show (Edge32 (snd (fastEdgeAttr el)))) $
+    Debug.Trace.trace ("ins attr"++ show (Edge32 (snd (fastEdgeAttr el)))) $
     fmap fst $ insertNodeEdgeAttr overwrite jgraph
                            ((Node32 n0, Node32 n1), nl0, nl1, Edge32 attr, Edge32 attrBase)
    where
@@ -244,20 +246,20 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 ----------------------------------------------------------------------------------------
 
   union g0 g1 = do
-    ((EnumGraph bg be br bn), (EnumGraph sg se sr sn)) <- biggerSmaller g0 g1
+    ((EnumGraph bg be br bn se0), (EnumGraph sg se sr sn se1)) <- biggerSmaller g0 g1
     nodeEs   <- getNodeEdges sg
     nodeEsMj <- getNodeEdges se
     insertNE nodeEs   bg
     insertNE nodeEsMj be
-    return (EnumGraph bg be br bn)
+    return (EnumGraph bg be br bn se0)
    where
     biggerSmaller :: (NodeAttribute nl, EdgeAttribute el) =>
              EnumGraph nl el -> EnumGraph nl el -> IO (EnumGraph nl el, EnumGraph nl el)
-    biggerSmaller (EnumGraph g0 e0 r0 n0) (EnumGraph g1 e1 r1 n1) = do
+    biggerSmaller (EnumGraph g0 e0 r0 n0 se0) (EnumGraph g1 e1 r1 n1 se1) = do
        s0 <- J.size g0
        s1 <- J.size g1
-       if s0 >= s1 then return ((EnumGraph g0 e0 r0 n0), (EnumGraph g1 e1 r1 n1))
-                   else return ((EnumGraph g1 e1 r1 n1), (EnumGraph g0 e0 r0 n0))
+       if s0 >= s1 then return ((EnumGraph g0 e0 r0 n0 se0), (EnumGraph g1 e1 r1 n1 se1))
+                   else return ((EnumGraph g1 e1 r1 n1 se1), (EnumGraph g0 e0 r0 n0 se0))
 
 ----------------------------------------------------------------------------------------
 

@@ -144,7 +144,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   isNull :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
             ComplexGraph nl el -> IO Bool
   isNull (ComplexGraph graph enumGraph nodeLabelMap edgeLabelMap rs n) = do
-    isN <- isNull (EnumGraph graph enumGraph rs n ::
+    isN <- isNull (EnumGraph graph enumGraph rs n edgeFromAttr ::
                        (NodeAttribute nl, EdgeAttribute el) => EnumGraph nl el)
     return (isN && (maybe True Map.null nodeLabelMap)
                 && (maybe True Map.null edgeLabelMap))
@@ -191,7 +191,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                      nodeCountC = nodeCountE gr
                    }, res)
    where egraph = (EnumGraph (judyGraphC jgraph) (enumGraphC jgraph)
-                             (rangesC jgraph) (nodeCountC jgraph)) :: EnumGraph nl el
+                             (rangesC jgraph) (nodeCountC jgraph)) edgeFromAttr :: EnumGraph nl el
 
   insertCSVEdgeStream jgraph file newEdge = do
     gr <- insertCSVEdgeStream egraph file newNewEdge
@@ -205,11 +205,11 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
        newgr <- newEdge (ComplexGraph (judyGraphE gr) (enumGraph gr) Nothing Nothing
                                       (rangesE gr) (nodeCountE gr)) strs
        return (EnumGraph (judyGraphC newgr) (enumGraphC newgr)
-                         (rangesC newgr) (nodeCountC newgr))
+                         (rangesC newgr) (nodeCountC newgr) edgeFromAttr)
        where newgr = newEdge (ComplexGraph (judyGraphE gr) (enumGraph gr) Nothing Nothing
                                            (rangesE gr) (nodeCountE gr)) strs
      egraph = (EnumGraph (judyGraphC jgraph) (enumGraphC jgraph)
-                         (rangesC jgraph) (nodeCountC jgraph)) :: EnumGraph nl el
+                         (rangesC jgraph) (nodeCountC jgraph) edgeFromAttr) :: EnumGraph nl el
 
   insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
   insertCSVEdge newEdge g (Left message)   = return g
@@ -257,9 +257,9 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   union (ComplexGraph j0 enumJ0 complexNodeLabelMap0 complexEdgeLabelMap0 ranges0 n0)
         (ComplexGraph j1 enumJ1 complexNodeLabelMap1 complexEdgeLabelMap1 ranges1 n1) = do
 
-    (EnumGraph newJGraph newJEnum nm em :: EnumGraph nl el)
-        <- union (EnumGraph j0 enumJ0 ranges0 n0)
-                 (EnumGraph j1 enumJ1 ranges1 n1)
+    (EnumGraph newJGraph newJEnum nm em edgeFromAttr :: EnumGraph nl el)
+        <- union (EnumGraph j0 enumJ0 ranges0 n0 edgeFromAttr)
+                 (EnumGraph j1 enumJ1 ranges1 n1 edgeFromAttr)
 
     return (ComplexGraph newJGraph newJEnum
             (mapUnion complexNodeLabelMap0 complexNodeLabelMap1)
