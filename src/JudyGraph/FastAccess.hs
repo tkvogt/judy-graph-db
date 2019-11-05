@@ -159,6 +159,17 @@ class GraphClass graph nl el where
   fromList :: Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el], Bool)]
                                      -> [(Edge, Maybe nl, Maybe nl, [el])]
            -> NonEmpty ((RangeStart, RangeLen), (nl, [el])) -> IO (graph nl el)
+--  insertNode
+--  insertNodes
+--  nodes
+--  nodeLabels
+--  edges
+--  edgeLabels
+--  ĺookupNode
+--  lookupEdge
+--  mapNode
+--  mapNodeWithKey
+--  findMaxKey
   insertNodeEdge ::  Bool -> graph nl el ->  (Edge,Maybe nl,Maybe nl,el,Bool)
                       -> IO (graph nl el)
   -- | Insert several edges using 'insertNodeEdge'
@@ -178,6 +189,7 @@ class GraphClass graph nl el where
   deleteNode  :: graph nl el -> Node32 -> IO (graph nl el)
   deleteNodes :: graph nl el -> [Node32] -> IO (graph nl el)
   deleteEdge :: (graph nl el) -> Edge -> IO (graph nl el)
+--  deleteEdges
   -- | merge two graphs into one
   union :: graph nl el -> graph nl el -> IO (graph nl el)
   adjacentEdgesByAttr :: graph nl el -> Node32 -> Edge32 -> IO [Edge32]

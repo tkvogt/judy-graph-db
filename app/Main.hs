@@ -12,8 +12,8 @@ import qualified JudyGraph as J
 import qualified JudyGraph.Cypher as Cy
 import JudyGraph.FastAccess(AddCSVLine(..))
 
-main :: IO ()
-main = do
+main2 :: IO ()
+main2 = do
   jgraph <- J.fromListE False nodes dirEdges [] ranges
 
   -- Which of the issues that simon has raised reference other issues?
@@ -90,6 +90,10 @@ instance EdgeAttribute EdgeLabel where
   fastEdgeAttrBase BelongtsTO = 0x4000000
   fastEdgeAttrBase References = 0x5000000
 
+  edgeFromAttr 0x1000001 = Raises
+  edgeFromAttr 0x2000001 = Accepts
+  edgeFromAttr 0x3000001 = Closes
+  edgeFromAttr 0x4000001 = BelongtsTO
 
 instance AddCSVLine EnumGraph NodeLabel EdgeLabel where
   addCsvLine m graph (Right a) = return graph -- [vocIndex, str]
@@ -135,8 +139,8 @@ search space a lot.
 
 -}
 
-main2 :: IO ()
-main2 = do
+main :: IO ()
+main = do
   jgraph <- J.fromListE False nodes dirEdges [] ranges
 --  [CN _ p, _, CN _ v, _, CN _ f] <- temp jgraph (packages --> packagesVer --> function)
   query <- temp jgraph True (packages --> packagesVer --> function)
@@ -164,7 +168,7 @@ main2 = do
   -- but here we do it by hand
   ranges = NonEmpty.fromList [((0,1), (PACKAGE "", [PartOf])),
                               ((1,3), (PACKAGEVER "", [PartOf])),
-                              ((4,3), (FUNCTION F, []))]
+                              ((4,3), (FUNCTION F, [PartOf]))]
 
   dirEdges :: [(J.Edge, Maybe NodeLabel2, Maybe NodeLabel2, [EdgeLabel2], Bool)]
   dirEdges = map n32e
@@ -196,9 +200,9 @@ instance Enum NodeLabel2 where
 
 data Func =
      Func { functionType :: !Text
-       , functionName :: !Text
-       , nameSpace :: !Text
-       }
+          , functionName :: !Text
+          , nameSpace :: !Text
+          }
      | F deriving (Eq ,Ord, Show)
 
 -- | Can be complex (like a record).
@@ -212,6 +216,7 @@ instance EdgeAttribute EdgeLabel2 where
     -- What a programmer can do
     fastEdgeAttr PartOf = (8,0x1000001) -- take the 8 highest bits
     fastEdgeAttrBase PartOf = 0x1000000
+    edgeFromAttr 0x1000001 = PartOf
 
 ---------------------------------------------
 {-

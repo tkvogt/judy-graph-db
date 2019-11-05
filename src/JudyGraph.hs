@@ -81,6 +81,7 @@ import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..),
                   union, mapNodeJ, mapNodeWithKeyJ,
                   allChildEdges, allChildNodesFromEdges, lookupJudyNodes)
 import JudyGraph.Cypher
+import System.ProgressBar
 import Debug.Trace
 
 
@@ -95,10 +96,13 @@ data (NodeAttribute nl, EdgeAttribute el) =>
   complexNodeLabelMap :: Maybe (Map Node32 nl),-- ^ A node attr that doesn't fit into 64bit
   complexEdgeLabelMap :: Maybe (Map (Node32,Node32) [el]),
   rangesC :: NonEmpty ((RangeStart, RangeLen), (nl, [el])), -- ^ a nonempty list with an attribute
-                                              --   for every range
+                                                            --   for every range
   nodeCountC :: Word32
 }
 
+instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
+         Show (ComplexGraph nl el) where
+  show (ComplexGraph j e nmap emap rs nc) = show (rs, nmap, emap)
 
 -- | Inserting a new node means either
 --
@@ -110,7 +114,6 @@ insertNode :: (NodeAttribute nl, EdgeAttribute el) =>
               ComplexGraph nl el -> (Node32, nl) -> IO (ComplexGraph nl el)
 insertNode (ComplexGraph j eg nm em r n) (node, nl) = do
   let newNodeAttr = maybe Map.empty (Map.insert node nl) nm
-
   -- the first index lookup is the count
   let enumNodeEdge = buildWord64 (nodeWithLabel node nl) 0
   numEdges <- J.lookup enumNodeEdge eg
@@ -152,8 +155,11 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
   -- | If you don't need complex node/edge labels use 'fromListJ'
   fromList overwrite nodes directedEdges edges ranges = do
+      putStrLn "fromList"
       jgraph <- empty ranges
+      putStrLn "fromList 1"
       ngraph <- insertNodes jgraph nodes
+      putStrLn "fromList judy"
       insertNodeEdges overwrite ngraph nodes
                       (directedEdges ++ (map addDir edges) ++ (map dirRev edges) )
     where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
@@ -417,8 +423,10 @@ runOnC :: (Eq nl, Show nl, Show el, Enum nl,
           NodeAttribute nl, EdgeAttribute el) =>
          ComplexGraph nl el -> Bool -> GraphDiff ->
          Map Int (CypherComp nl el) -> IO (Map Int (CypherComp nl el), GraphDiff)
-runOnC graph create (GraphDiff dns newns des newEs) comps =
-  return (Map.empty, GraphDiff dns newns des newEs)
+runOnC graph create (GraphDiff dns newns des newEs) comps = -- Debug.Trace.trace ("rangesC "++ show (rangesC graph)) $
+  runOnE egraph create (GraphDiff dns newns des newEs) comps
+  where egraph = EnumGraph (judyGraphC graph) (enumGraphC graph) (rangesC graph) (nodeCountC graph) edgeFromAttr
+
 
 -------------------------------------------------------------------------------
 -- Creating a graph TODO

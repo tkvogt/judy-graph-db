@@ -127,7 +127,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   --   If edge already exists and (overwrite == True) overwrite it
   --   otherwise create a new edge and increase counter (that is at index 0)
   insertNodeEdge overwrite jgraph ((Node32 n0, Node32 n1), nl0, nl1, el, dir) =
-    Debug.Trace.trace ("ins attr"++ show (Edge32 (snd (fastEdgeAttr el)))) $
+--    Debug.Trace.trace ("ins attr"++ show (Edge32 (snd (fastEdgeAttr el)))) $
     fmap fst $ insertNodeEdgeAttr overwrite jgraph
                            ((Node32 n0, Node32 n1), nl0, nl1, Edge32 attr, Edge32 attrBase)
    where
@@ -150,7 +150,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     let edgeAttrCount = fromMaybe 0 maybeEdgeAttrCount
 
     insertEnumEdges jgraph (Node32 n0Key) (Node32 n1Key) (Edge32 attrBase)
-                          (Edge32 (attr + if overwrite then 0 else edgeAttrCount))
+                           (Edge32 (attr + if overwrite then 0 else edgeAttrCount))
 --    debugToCSV (n0Key,n1Key) edgeLabel
     -------------------------------------
     let newValKey = buildWord64 n0Key (attr + if overwrite then 0 else edgeAttrCount)
@@ -340,12 +340,13 @@ allChilds jgraph (Node32 node) indexGen = do
   mj = enumGraph jgraph
 
 
-allAttrBases :: (NodeAttribute nl, EdgeAttribute el) =>
+allAttrBases :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el) =>
                  EnumGraph nl el -> Node32 -> IO [Edge32]
 allAttrBases jgraph (Node32 node) = do
   return (map Edge32 enumBases)
  where
-  enumBases = map fastEdgeAttrBase ((snd . snd . inRange node . toList . rangesE) jgraph)
+  enumBases = -- Debug.Trace.trace ("bases "++ show (node, inRange node (toList (rangesE jgraph)))) $
+              map fastEdgeAttrBase ((snd . snd . inRange node . toList . rangesE) jgraph)
   mj = enumGraph jgraph
 
 
@@ -363,7 +364,7 @@ allChildNodesFromEdges jgraph (Node32 node) edges = do
 
 inRange node [] = error "node is not inRange, Enum.hs" -- should not happen
 inRange node [((start,len),(nl,els))] = ((start,len),(nl,els))
-inRange node (((start,len),(nl,els)):xs) | node <= start = ((start,len),(nl,els))
+inRange node (((start,len),(nl,els)):xs) | node >= start = ((start,len),(nl,els))
                                          | otherwise = inRange node xs
 
 
