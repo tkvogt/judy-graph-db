@@ -67,7 +67,7 @@ data (NodeAttribute nl, EdgeAttribute el) =>
   rangesE :: NonEmpty ((RangeStart, RangeLen), (nl, [el])),-- ^ A nonempty list with an attr for every range
                                      -- and assigning which edgelabels are valid in each range
   nodeCountE :: Word32,
-  showEdge :: Word32 -> el
+  showEdge :: Edge32 -> el
 }
 
 
@@ -85,7 +85,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
               unsafePerformIO (J.keys  (unsafePerformIO (J.freeze judyGraphE)))
       nodeDests = unsafePerformIO (J.elems (unsafePerformIO (J.freeze judyGraphE)))
       line or e dest = show or ++" -> "++ show dest ++" [ label = \""++ 
-                       (backLabel e) ++ show (showEdge e) ++ "\" ];\n"
+                       (backLabel e) ++ show (showEdge (Edge32 e)) ++ "\" ];\n"
 
 ------------------------------------------------------------------------------------------
 

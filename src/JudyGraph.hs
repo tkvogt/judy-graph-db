@@ -49,7 +49,7 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node32(..), Edge32(..), E
       -- * Query Evaluation
       GraphCreateReadUpdate(..), evalNode,
       -- * Attributes, Labels,...
-      Attr(..), LabelNodes(..), NE(..),
+      EAttr(..), LabelNodes(..), NE(..),
       -- * type classes for translation into bits
       NodeAttribute(..), EdgeAttribute(..),
       -- * Node specifiers

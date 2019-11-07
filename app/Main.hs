@@ -90,10 +90,10 @@ instance EdgeAttribute EdgeLabel where
   fastEdgeAttrBase BelongtsTO = 0x4000000
   fastEdgeAttrBase References = 0x5000000
 
-  edgeFromAttr 0x1000001 = Raises
-  edgeFromAttr 0x2000001 = Accepts
-  edgeFromAttr 0x3000001 = Closes
-  edgeFromAttr 0x4000001 = BelongtsTO
+  edgeFromAttr (Edge32 0x1000001) = Raises
+  edgeFromAttr (Edge32 0x2000001) = Accepts
+  edgeFromAttr (Edge32 0x3000001) = Closes
+  edgeFromAttr (Edge32 0x4000001) = BelongtsTO
 
 instance AddCSVLine EnumGraph NodeLabel EdgeLabel where
   addCsvLine m graph (Right a) = return graph -- [vocIndex, str]
@@ -142,7 +142,7 @@ search space a lot.
 main :: IO ()
 main = do
   jgraph <- J.fromListE False nodes dirEdges [] ranges
---  [CN _ p, _, CN _ v, _, CN _ f] <- temp jgraph (packages --> packagesVer --> function)
+--  [CN p, _, CN v, _, CN f] <- temp jgraph (packages --> packagesVer --> function)
   query <- temp jgraph True (packages --> packagesVer --> function)
 --  createMem jgraph (p --> v --> appl sort f)
 --  create jgraph dbPath (p --> v --> appl sort f)
@@ -216,7 +216,7 @@ instance EdgeAttribute EdgeLabel2 where
     -- What a programmer can do
     fastEdgeAttr PartOf = (8,0x1000001) -- take the 8 highest bits
     fastEdgeAttrBase PartOf = 0x1000000
-    edgeFromAttr 0x1000001 = PartOf
+    edgeFromAttr (Edge32 0x1000001) = PartOf
 
 ---------------------------------------------
 {-

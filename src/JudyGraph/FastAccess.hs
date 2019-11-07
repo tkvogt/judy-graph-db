@@ -123,7 +123,7 @@ newtype Node32 = Node32 Word32 deriving (Eq, Ord)
 -- ^ A typesafe Word32
 
 instance Show Edge32 where show (Edge32 e) = "Edge " ++ (showHex32 e)
-instance Show Node32 where show (Node32 n) = "Node " ++ (showHex32 n)
+instance Show Node32 where show (Node32 n) = show n -- "Node " ++ (showHex32 n)
 
 type Start    = Node32
 -- ^ start index
@@ -212,7 +212,7 @@ class NodeAttribute nl where
 class EdgeAttribute el where
     fastEdgeAttr :: el -> (Bits, Word32)
     fastEdgeAttrBase :: el -> Word32 -- The key that is used for counting
-    edgeFromAttr :: Word32 -> el
+    edgeFromAttr :: Edge32 -> el
 --    edgeBackward :: el -> Word32 -- 0 if the edge is "in direction", otherwise a value (a bit) that 
 --                      -- does not interfere with the rest of the attr (orthogonal attr)
   --   main attr of the arbitraryKeygraph

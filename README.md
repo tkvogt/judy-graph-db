@@ -148,10 +148,10 @@ The output of the query:
 
 ```Bash
 N [Nodes [0]],
-E [],
-N [Nodes2 [[3,4]]],
-E [],
-N [Nodes3 [[[5],[3,6]]]]
+E Just [(0,[Edge 01000001,Edge 01000002,Edge 01000003])],
+N [Nodes [1,2,3]],
+E Just [(1,[Edge 01000001]),(2,[Edge 01000001,Edge 01000002,Edge 01000003]),(3,[Edge 01000001,Edge 01000002])],
+N [Nodes3 [[[4],[4,5,6],[4,5]]]]]
 ```
 
 This nesting of lists is equivalent to:

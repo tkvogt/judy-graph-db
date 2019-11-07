@@ -13,6 +13,8 @@ Portability :  POSIX
 module JudyGraph.Table where
 
 import           Control.Monad(zipWithM)
+import           Data.Map.Strict(Map)
+import           Data.Word(Word32)
 import JudyGraph.Enum(Node32(..), Edge32(..), NodeAttribute (..), EdgeAttribute(..))
 
 
@@ -29,7 +31,15 @@ data NAttr = AllNodes
            | Nodes9 [[[[[[[[[Node32]]]]]]]]] -- That should be enough
               deriving Show
 
-data EAttr = Edges  [Edge32]
+data EAttr = Attr Word32 -- ^Each attribute uses bits that are used only by this attribute
+           | Orth Word32 -- ^Attributes can use all bits
+           | DirL        -- ^Left arrow dir bit is added to all other attributes
+           | DirR        -- ^Right arrow dir bit is added to all other attributes
+           | EFilterBy (Map Edge32 Bool -> Edge32 -> Bool) -- ^Attributes are the result of
+                                            -- filtering all adjacent edges by a function
+           | Several Int Int
+
+           | Edges  [Edge32]
            | Edges2 [[Edge32]]
            | Edges3 [[[Edge32]]]
            | Edges4 [[[[Edge32]]]]
@@ -38,7 +48,23 @@ data EAttr = Edges  [Edge32]
            | Edges7 [[[[[[[Edge32]]]]]]]
            | Edges8 [[[[[[[[Edge32]]]]]]]]
            | Edges9 [[[[[[[[[Edge32]]]]]]]]] -- That should be enough
-              deriving Show
+
+instance Show EAttr where
+  show (Attr w32) = "Attr " ++ show w32
+  show (Orth w32) = "Orth " ++ show w32
+  show DirL = "DirL "
+  show DirR = "DirR "
+  show (EFilterBy f) = "EFilterBy"
+  show (Several i0 i1) = show i0 ++ "…" ++ show i1
+  show (Edges es) = "Edges "++ show es
+  show (Edges2 es) = "Edges2 "++ show es
+  show (Edges3 es) = "Edges3 "++ show es
+  show (Edges4 es) = "Edges4 "++ show es
+  show (Edges5 es) = "Edges5 "++ show es
+  show (Edges6 es) = "Edges6 "++ show es
+  show (Edges7 es) = "Edges7 "++ show es
+  show (Edges8 es) = "Edges8 "++ show es
+  show (Edges9 es) = "Edges9 "++ show es
 
 
 -- Keep structure and apply an IO-function to the lowest nesting of nodes
