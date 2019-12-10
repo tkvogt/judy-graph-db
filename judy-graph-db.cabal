@@ -22,8 +22,10 @@ library
                      , containers
                      , deepseq
                      , judy
+                     , lmdb-simple
                      , mtl
                      , semigroups
+                     , serialise
                      , streamly
                      , terminal-progress-bar
                      , text

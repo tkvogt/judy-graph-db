@@ -14,7 +14,7 @@ module JudyGraph.Enum (
     GraphClass(..), NodeAttribute(..), EdgeAttribute(..), JGraph(..), EnumGraph(..), Judy,
     Edge, Node32(..), Edge32(..), NodeEdge, RangeStart, RangeLen, Index, Start, End, Bits(..),
     -- * Construction
-    emptyE, emptyJ, fromListJ, fromListE,
+    empty, fromList, emptyE, fromListE,
     insertNodeEdge2, insertNodeLines, insertNE,
     updateNodeEdges, mapNodeJ, mapNodeWithKeyJ,
     -- * Extraction
@@ -87,30 +87,31 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
       line or e dest = show or ++" -> "++ show dest ++" [ label = \""++ 
                        (backLabel e) ++ show (showEdge (Edge32 e)) ++ "\" ];\n"
 
+-- | Generate two empty judy arrays and two empty data.maps for complex node and edge
+--   labels. The purpose of the range list is to give a special interpretation of edges
+--   depending on the node type.
+empty ranges = do
+  j <- J.new :: IO Judy
+  mj <- J.new :: IO Judy
+  return (EnumGraph j mj ranges 0 edgeFromAttr)
+
+fromList overwrite nodes directedEdges nodeEdges ranges = do
+  jgraph <- empty ranges
+  insertNodeEdges overwrite jgraph nodes
+                  (directedEdges ++ (map addDir nodeEdges) ++ (map dirRev nodeEdges) )
+  where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
+        dirRev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels, True)
+
 ------------------------------------------------------------------------------------------
 
 instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
          GraphClass EnumGraph nl el where
-  -- | Generate two empty judy arrays and two empty data.maps for complex node and edge
-  --   labels. The purpose of the range list is to give a special interpretation of edges
-  --   depending on the node type.
-  empty ranges = do
-    j <- J.new :: IO Judy
-    mj <- J.new :: IO Judy
-    return (EnumGraph j mj ranges 0 edgeFromAttr)
 
   -- | Are the judy arrays of the graph both empty?
   isNull (EnumGraph graph enumGraph _ _ _) = do
     g <- J.null graph
     e <- J.null enumGraph
     return (g && e)
-
-  fromList overwrite nodes directedEdges nodeEdges ranges = do
-    jgraph <- empty ranges
-    insertNodeEdges overwrite jgraph nodes
-                    (directedEdges ++ (map addDir nodeEdges) ++ (map dirRev nodeEdges) )
-    where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
-          dirRev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels, True)
 
   addNodeCount nodes gr = gr { nodeCountE = (nodeCountE gr) + fromIntegral (length nodes) }
 
@@ -193,31 +194,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
         where strs = CSV.decode CSV.NoHeader l :: Either String (Vector (Vector BL.ByteString))
               l = BL.fromStrict (encodeUtf8 (T.pack line))
 
------------------------------------------------------------------------------------------
-
-{-
-  insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
-              EnumGraph nl el -> FilePath ->
-             (EnumGraph nl el -> [String] -> IO (EnumGraph nl el)) -> IO (EnumGraph nl el)
-  insertCSVEdgeStream graph file newEdge = do
-    a <- S.withBinaryFileContents file
-                            ((S.foldM (insertCSVEdge newEdge) (return graph) return) . dec)
-    return (fst (S.lazily a))
-   where
-    dec :: B.ByteString IO () ->
-           Stream (Of (Either CsvParseException [String]))
-                  IO
-                  (Either (CsvParseException, B.ByteString IO ()) ())
-    dec = S.decodeWithErrors S.defaultDecodeOptions NoHeader
-
-
-  -- | A helper function for insertCSVEdgeStream
-  insertCSVEdge :: (NodeAttribute nl, EdgeAttribute el) =>
-             (EnumGraph nl el -> [String] -> IO (EnumGraph nl el))
-           -> EnumGraph nl el -> Either CsvParseException [String] -> IO (EnumGraph nl el)
   insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
   insertCSVEdge newEdge g (Left message)   = return g
--}
 
 ----------------------------------------------------------------------------------------
   -- | deletes all node-edges that contain this node, because the judy array only stores
@@ -242,6 +220,13 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     let nodeEdges = map (buildWord64 n0) [] -- es
     edgesToN1 <- filterEdgesTo jgraph nodeEdges (\(Edge32 n0) -> n0 == n1)
     deleteNodeEdgeListE jgraph edgesToN1
+
+
+  deleteEdges :: (NodeAttribute nl, EdgeAttribute el) =>
+                (EnumGraph nl el) -> [Edge] -> IO (EnumGraph nl el)
+  deleteEdges jgraph edges = do
+    newEdgeMap <- foldM deleteEdge jgraph edges
+    return jgraph
 
 ----------------------------------------------------------------------------------------
 
@@ -366,7 +351,6 @@ inRange node [] = error "node is not inRange, Enum.hs" -- should not happen
 inRange node [((start,len),(nl,els))] = ((start,len),(nl,els))
 inRange node (((start,len),(nl,els)):xs) | node >= start = ((start,len),(nl,els))
                                          | otherwise = inRange node xs
-
 
 emptyE :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
           NonEmpty ((RangeStart, RangeLen), (nl, [el])) -> IO (EnumGraph nl el)

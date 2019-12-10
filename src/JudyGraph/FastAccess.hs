@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, FlexibleContexts, DeriveAnyClass, Strict, 
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, DeriveAnyClass, DeriveGeneric, Strict, 
     StrictData, MultiParamTypeClasses, FlexibleInstances, InstanceSigs #-}
 {-|
 Module      :  JudyGraph.FastAccess
@@ -80,6 +80,7 @@ module JudyGraph.FastAccess (
     showHex, showHex32, attrOverlap, backLabel
   ) where
 
+import           Codec.Serialise
 import           Control.Monad
 import           Data.Bits((.&.), (.|.))
 import qualified Data.ByteString.Lazy as BL
@@ -105,6 +106,7 @@ import           Data.Vector(Vector)
 import           Foreign.Marshal.Alloc(allocaBytes)
 import           Foreign.Ptr(castPtr, plusPtr)
 import           Foreign.Storable(peek, pokeByteOff)
+import GHC.Generics
 import qualified Streamly as S
 import qualified Streamly.Prelude as S
 import           System.IO.Unsafe(unsafePerformIO)
@@ -119,7 +121,7 @@ type Judy = J.JudyL Word32
 
 newtype Edge32 = Edge32 Word32
 -- ^ Although both node and edge are Word32 we want to differentiate them
-newtype Node32 = Node32 Word32 deriving (Eq, Ord)
+newtype Node32 = Node32 Word32 deriving (Eq, Ord, Generic, Serialise)
 -- ^ A typesafe Word32
 
 instance Show Edge32 where show (Edge32 e) = "Edge " ++ (showHex32 e)
@@ -154,11 +156,11 @@ data (NodeAttribute nl, EdgeAttribute el) =>
 ----------------------------------------------------------------------------------------
 -- | A general class of functions that all three graphs have to support
 class GraphClass graph nl el where
-  empty :: NonEmpty ((RangeStart, RangeLen), (nl, [el])) -> IO (graph nl el)
+--  empty :: NonEmpty ((RangeStart, RangeLen), (nl, [el])) -> IO (graph nl el)
   isNull :: graph nl el -> IO Bool
-  fromList :: Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el], Bool)]
-                                     -> [(Edge, Maybe nl, Maybe nl, [el])]
-           -> NonEmpty ((RangeStart, RangeLen), (nl, [el])) -> IO (graph nl el)
+--  fromList :: Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el], Bool)]
+--                                     -> [(Edge, Maybe nl, Maybe nl, [el])]
+--           -> NonEmpty ((RangeStart, RangeLen), (nl, [el])) -> IO (graph nl el)
 --  insertNode
 --  insertNodes
 --  nodes
@@ -189,7 +191,7 @@ class GraphClass graph nl el where
   deleteNode  :: graph nl el -> Node32 -> IO (graph nl el)
   deleteNodes :: graph nl el -> [Node32] -> IO (graph nl el)
   deleteEdge :: (graph nl el) -> Edge -> IO (graph nl el)
---  deleteEdges
+  deleteEdges :: (graph nl el) -> [Edge] -> IO (graph nl el)
   -- | merge two graphs into one
   union :: graph nl el -> graph nl el -> IO (graph nl el)
   adjacentEdgesByAttr :: graph nl el -> Node32 -> Edge32 -> IO [Edge32]
@@ -226,28 +228,27 @@ class AddCSVLine graph nl el where
                -> Either String (Vector Text) -- ^ A string for each element of the line
                -> IO (graph nl el) -- ^ The IO action that adds something to the graph
 
+-- | Generate two empty judy arrays and two empty data.maps for complex node and edge
+--   labels. The purpose of the range list is to give a special interpretation of edges
+--   depending on the node type.
+empty ranges = do
+  j <- J.new :: IO Judy
+  return (JGraph j ranges 0)
+
+fromList overwrite nodes directedEdges nodeEdges ranges = do
+  jgraph <- empty ranges
+  insertNodeEdges overwrite jgraph nodes
+                  (directedEdges ++ (map addDir nodeEdges) ++ (map dirRev nodeEdges) )
+  where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
+        dirRev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels, True)
+
 -----------------------------------------------------------------------------------------
 
 instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
          GraphClass JGraph nl el where
-  -- | Generate two empty judy arrays and two empty data.maps for complex node and edge
-  --   labels. The purpose of the range list is to give a special interpretation of edges
-  --   depending on the node type.
-  empty ranges = do
-    j <- J.new :: IO Judy
-    return (JGraph j ranges 0)
-
 
   -- | Is the judy array of the graph empty?
   isNull (JGraph graph _ _) = J.null graph
-
-
-  fromList overwrite nodes directedEdges nodeEdges ranges = do
-    jgraph <- empty ranges
-    insertNodeEdges overwrite jgraph nodes
-                    (directedEdges ++ (map addDir nodeEdges) ++ (map dirRev nodeEdges) )
-    where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
-          dirRev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels, True)
 
   addNodeCount nodes jgraph = jgraph { nodeCountJ = (nodeCountJ jgraph) +
                                                     (fromIntegral (length nodes)) }
@@ -320,6 +321,9 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
         where strs = CSV.decode CSV.NoHeader l :: Either String (Vector (Vector BL.ByteString))
               l = BL.fromStrict (encodeUtf8 (T.pack line))
 
+  insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
+  insertCSVEdge newEdge g (Left message)   = return g
+
 -----------------------------------------------------------------------------------------
 
   -- | Deletes all node-edges that contain this node, because the judy array only stores
@@ -345,6 +349,13 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     let nodeEdges = map (buildWord64 n0) []
     edgesToN1 <- filterEdgesTo jgraph nodeEdges (\(Edge32 e) -> e == n1)
     deleteNodeEdgeListJ jgraph edgesToN1
+
+
+  deleteEdges :: (NodeAttribute nl, EdgeAttribute el) =>
+                (JGraph nl el) -> [Edge] -> IO (JGraph nl el)
+  deleteEdges jgraph edges = do
+    newEdgeMap <- foldM deleteEdge jgraph edges
+    return jgraph
 
 ---------------------------------------------------------------------------------------
   -- | Find the bigger one of two judy arrays and insert all (key,value)-pairs from the

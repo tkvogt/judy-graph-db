@@ -3,7 +3,7 @@ DISCLAIMER: There are still a lot of TODOS, the API will change and I haven't do
 Intro
 =====
 
-judy-graph-db is a graph database based on [judy arrays](https://en.wikipedia.org/wiki/Judy_array). It was developed because there was no Haskell library that could handle very dense graphs with a million edges coming from a node. It currently is focused on analysing a static set of graph files (like the panama papers) and then to query it and do a little bit of post processing like adding, updating or deleting edges.
+judy-graph-db is a graph database based on [judy arrays](https://en.wikipedia.org/wiki/Judy_array) and lmdb. It was developed because there was no Haskell library that could handle very dense graphs with a million edges coming from a node. It currently is focused on analysing a static set of graph files (like the panama papers) and then to query it and do a little bit of post processing like adding, updating or deleting edges.
 
 judy-graph-db should be
  - fast: Because of judy-arrays
@@ -15,8 +15,6 @@ judy-graph-db should be
 
 On the downside (currently):
  - Deletion not tested and slows down the queries
- - No persistency yet
- - No thoughts on concurrency yet
  - No REST API yet (wich is maybe good for typesafety and that there are no standard passwords like [MongoDB](https://www.theregister.co.uk/2017/01/11/mongodb_ransomware_followup/))
  - Cannot handle graphs that don't fit into memory
  - Judy Arrays are in IO. It is a binding to a C libary that is not easy to understand.
@@ -75,8 +73,8 @@ Graph Types
 You have the choice between
  - JGraph: Fast and memory effienct, but not usable in all cases
  - EnumGraph: An additional graph to enumerate edges that are not used continuously
- - ComplexGraph: Fast but not memory efficient. If node or edge attributes don't fit into 32 bit,
-   there need to be additional Data.Map structures, but the judy arrays are kept for speed.
+ - PersistentGraph: If node or edge attributes don't fit into 32 bit, or if persistency is needed,
+                    the key-value database lmdb is used, but the judy arrays are kept for speed.
 
 JGraph
 ------
@@ -108,7 +106,7 @@ data (NodeAttribute nl, EdgeAttribute el) =>
   }
 ```
 
-ComplexGraph
+PersistentGraph
 ------------
 
 There are cases where properties cannot be compressed into 32 bit edges, but there is enough space for a convenient Data.Map-structure. On the other hand we still suspect the judy array to be faster. Some algoritms might only need the judy array, while another one needs more. We allow both. This is still in development. Might also be needed when the judy array overflows in 1% of the cases and then we need a bigger structure. For example you use only the latin characters from unicode and then a special character to force looking up in Data.Map (like utf8).
@@ -116,14 +114,20 @@ There are cases where properties cannot be compressed into 32 bit edges, but the
 
 ```Haskell
 data (NodeAttribute nl, EdgeAttribute el) =>
-  ComplexGraph nl el = ComplexGraph {
-    judyGraphC :: Judy,
-    enumGraphC :: Judy,
-    complexNodeLabelMap :: Maybe (Map Word32 nl),
-    complexEdgeLabelMap :: Maybe (Map (Node,Node) [el]),
-    rangesC :: NonEmpty (RangeStart, nl),
-    nodeCountC :: Word32
-  }
+     PersistentGraph nl el = PersistentGraph {
+  judyGraphC :: Judy, -- ^ A Graph with 32 bit keys on the edge
+  enumGraphC :: Judy, -- ^ Enumerate the edges of the first graph,
+                      --   with counter at position 0.
+                     --   Deletions in the first graph are not updated here (too costly)
+  nodeLabelDB :: Database Node32 nl, -- ^ A node attr that doesn't fit into 64bit
+  edgeLabelDB :: Database (Node32,Node32) [el], -- Maybe (Map (Node32,Node32) [el]),
+  rangesC :: NonEmpty ((RangeStart, RangeLen), (nl, [el])), -- ^ a nonempty list with an attribute
+                                                            --   for every range
+  nodeCountC :: Word32,
+  dbEnvironment :: Environment ReadWrite,
+  dbLocation :: FilePath,
+  dbLimits :: Limits -- limits = Limits 1000000000 10 126
+}
 ```
 
 Cypher EDSL

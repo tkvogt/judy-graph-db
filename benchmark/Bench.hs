@@ -44,7 +44,7 @@ cw = do f <- getDataFileName "benchmark/data.txt"
         query <- table jgraph True (number128 --| mailed |-- anybody)
         putStrLn ("query result: " ++ show query)
   where
-    ranges = NonEmpty.fromList [(0, EMPLOYEE, [MAILED])]
+    ranges = NonEmpty.fromList [((0,1), (EMPLOYEE, [MAILED]))]
     number128 = node (nodes32 [128]) :: CyN
     anybody = node anyNode :: CyN
     mailed = edge (attr MAILED) :: CyE
@@ -55,7 +55,7 @@ miw = do f <- getDataFileName "benchmark/data.txt"
          insertNodeLines jgraph f MAILED
          putStrLn ("insertNodeLines")
   where
-    ranges = NonEmpty.fromList [(0, EMPLOYEE, [MAILED])]
+    ranges = NonEmpty.fromList [((0,1), (EMPLOYEE, [MAILED]))]
 
 ------------------------------------------------------------------------
 
@@ -70,6 +70,7 @@ instance NodeAttribute NodeLabel where
     fastNodeAttr _ = (0, 0) -- we don't use node attrs
 
 instance EdgeAttribute EdgeLabel where
-    fastEdgeAttr MAILED      = (8,0x1000001) -- take the 8 highest bits
-    fastEdgeAttrBase MAILED     = 0x1000000
+    fastEdgeAttr MAILED     = (8,0x1000001) -- take the 8 highest bits
+    fastEdgeAttrBase MAILED = 0x1000000
+    edgeFromAttr (Edge32 0x1000000)  = MAILED
 

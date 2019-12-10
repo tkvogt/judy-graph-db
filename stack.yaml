@@ -45,6 +45,7 @@ extra-deps:
   - streamly-0.6.1
   - lockfree-queue-0.2.3.1
   - terminal-progress-bar-0.4.1
+  - lmdb-simple-0.4.0.0
 # Override default flag values for local packages and extra-deps
 flags: {}
 
