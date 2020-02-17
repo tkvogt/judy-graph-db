@@ -3,7 +3,7 @@ DISCLAIMER: There are still a lot of TODOS, the API will change and I haven't do
 Intro
 =====
 
-judy-graph-db is a graph database based on [judy arrays](https://en.wikipedia.org/wiki/Judy_array) and lmdb. It was developed because there was no Haskell library that could handle very dense graphs with a million edges coming from a node. It currently is focused on analysing a static set of graph files (like the panama papers) and then to query it and do a little bit of post processing like adding, updating or deleting edges.
+judy-graph-db is a graph database based on [judy arrays](https://en.wikipedia.org/wiki/Judy_array) and [lmdb](https://en.wikipedia.org/wiki/Lightning_Memory-Mapped_Database). It was developed because there was no Haskell library that could handle very dense graphs with a million edges coming from a node. It currently is focused on analysing a static set of graph files (like the panama papers) and then to query it and do a little bit of post processing like adding, updating or deleting edges.
 
 judy-graph-db should be
  - fast: Because of judy-arrays
