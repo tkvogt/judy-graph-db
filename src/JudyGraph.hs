@@ -30,7 +30,7 @@ then the functions in this module generate fast access node-edges with the
 "Graph.FastAccess" module.
 
 -}
-module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node32(..), Edge32(..), Edge,
+module JudyGraph (JGraph(..), EnumGraph(..), Judy, Node32(..), Edge32(..), Edge,
       -- * Construction
       PersistentGraph(..), fromListE, fromDB, listToDB, emptyDB,
       insertCSVEdgeStream,
@@ -62,31 +62,24 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy(..), Node32(..), Edge32(..), E
      ) where
 
 import           Codec.Serialise
-import           Control.Monad(foldM, when)
+import           Control.Monad(foldM)
 import qualified Data.Judy as J
 import           Data.List.NonEmpty(NonEmpty(..))
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict(Map)
-import           Data.Maybe(isJust, maybe, fromMaybe)
-import qualified Data.Text as T
+import           Data.Maybe(maybe, fromMaybe)
 import           Data.Text(Text)
-import qualified Data.Vector as V
 import           Data.Vector(Vector)
-import           Data.Word(Word8, Word16, Word32)
+import           Data.Word(Word32)
 import           Database.LMDB.Simple
-import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy(..),
+import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy,
                   NodeAttribute(..), EdgeAttribute(..), Edge32(..), Node32(..), Edge,
-                  RangeStart, RangeLen, empty, fromList, isNull, fromListE,
-                  insertCSVEdgeStream,
-                  buildWord64, nodeWithLabel, nodeWithMaybeLabel, updateNodeEdges,
-                  insertNodeEdges, insertNodeLines, edgeBackward,
-                  deleteNode, deleteEdge,
-                  union, mapNodeJ, mapNodeWithKeyJ,
-                  allChildEdges, allChildNodesFromEdges, lookupJudyNodes)
+                  RangeStart, RangeLen, isNull, fromListE,
+                  insertCSVEdgeStream, buildWord64, insertNodeEdges, insertNodeLines, edgeBackward,
+                  deleteNode, deleteEdge, union, mapNodeJ, mapNodeWithKeyJ, lookupJudyNodes)
 import JudyGraph.Cypher
-import System.ProgressBar
-import Debug.Trace
-import qualified Database.LMDB.Simple.Extra as LMDB
+-- import System.ProgressBar
+-- import Debug.Trace
 
 -- | If the graph contains data that doesn't fit into 32 bit node/edges and there is
 --   enough memory
@@ -108,7 +101,7 @@ data (NodeAttribute nl, EdgeAttribute el) =>
 
 instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
          Show (PersistentGraph nl el) where
-  show (PersistentGraph j e nmap emap r c dbEnvironment dbLocation dbLimits) = show r
+  show (PersistentGraph _ _ _ _ r _ _ _ _) = show r
 
 -- | Inserting a new node means either
 --
@@ -118,9 +111,9 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 --    This can be slow because all node-edges have to be updated (O(#adjacentEdges))
 insertNode :: (NodeAttribute nl, EdgeAttribute el, Serialise nl) =>
               PersistentGraph nl el -> (Node32, nl) -> IO (PersistentGraph nl el)
-insertNode (PersistentGraph j eg nm em r c dbEnvironment dbLocation dbLimits) (n, nl) = do
-  db <- readWriteTransaction dbEnvironment $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
-  transaction dbEnvironment $ put db n (Just nl)
+insertNode (PersistentGraph j eg _ em r c dbEnv dbLoc dbLim) (n, nl) = do
+  db <- readWriteTransaction dbEnv $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
+  transaction dbEnv $ put db n (Just nl)
 
 --  let newNodeAttr = maybe Map.empty (Map.insert node nl) nm
   -- the first index lookup is the count
@@ -131,7 +124,7 @@ insertNode (PersistentGraph j eg nm em r c dbEnvironment dbLocation dbLimits) (n
             -- :: (NodeAttribute nl, EdgeAttribute el) => IO [EdgeAttr32]
 --       ns <- allChildNodesFromEdges (EnumGraph j eg r n :: (NodeAttribute nl, EdgeAttribute el) => EnumGraph nl el) node es
 --       mapM_ (updateNodeEdges (JGraph j r n) node nl) [] -- (zip es ns)
-  return (PersistentGraph j eg db em r c dbEnvironment dbLocation dbLimits)
+  return (PersistentGraph j eg db em r c dbEnv dbLoc dbLim)
 -- where
 --  ace = allChildEdges (EnumGraph j eg r n) node
 
@@ -142,35 +135,45 @@ insertNodes graph nodes = do
   foldM insertNode graph nodes
 
 
-emptyDB ranges dbLocation dbLimits = do -- TODO clear db?
+emptyDB :: (NodeAttribute nl, EdgeAttribute el) =>
+           NonEmpty ((RangeStart, RangeLen), (nl, [el])) -> FilePath -> Limits -> IO (PersistentGraph nl el)
+emptyDB rs dbLoc dbLim = do -- TODO clear db?
     j <- J.new :: IO Judy
     e <- J.new :: IO Judy
-    env <- openReadWriteEnvironment dbLocation dbLimits
+    env <- openReadWriteEnvironment dbLoc dbLim
     nlmap <- readWriteTransaction env $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
     elmap <- readWriteTransaction env $ getDatabase (Just "edgeLabelDB") :: IO (Database (Node32,Node32) [el])
-    return (PersistentGraph j e nlmap elmap ranges 0 env dbLocation dbLimits)
+    return (PersistentGraph j e nlmap elmap rs 0 env dbLoc dbLim)
 
 -- | If you don't need persistent node/edge labels use 'fromListJ'
-listToDB overwrite nodes directedEdges edges ranges dbLocation dbLimits = do
+listToDB :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Serialise nl, Serialise el, Enum nl) =>
+            Bool -> [(Node32, nl)]
+                 -> [((Node32, Node32), Maybe nl, Maybe nl, [el], Bool)]
+                 -> [((Node32, Node32), Maybe nl, Maybe nl, [el])]
+                 -> NonEmpty ((RangeStart, RangeLen), (nl, [el]))
+                 -> FilePath
+                 -> Limits
+                 -> IO (PersistentGraph nl el)
+listToDB overwrite nodes directedEdges es rs dbLoc dbLim = do
     putStrLn "fromList"
-    jgraph <- emptyDB ranges dbLocation dbLimits
+    jgraph <- emptyDB rs dbLoc dbLim
     putStrLn "fromList 1"
     ngraph <- insertNodes jgraph nodes
     putStrLn "fromList judy"
     insertNodeEdges overwrite ngraph nodes
-                    (directedEdges ++ (map addDir edges) ++ (map dirRev edges) )
-  where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
-        dirRev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels, True)
+                    (directedEdges ++ (map addDir es) ++ (map dirRev es) )
+  where addDir ((from,to), nl0, nl1, labls) = ((from,to), nl1, nl0, labls, True)
+        dirRev ((from,to), nl0, nl1, labls) = ((to,from), nl1, nl0, labls, True)
 
 fromDB :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Serialise nl) =>
           Bool -> NonEmpty ((RangeStart, RangeLen), (nl, [el])) -> FilePath -> Limits -> IO (PersistentGraph nl el)
-fromDB overwrite ranges dbLocation dbLimits = do -- TODO
+fromDB _ rs dbLoc dbLim = do -- TODO
     j <- J.new :: IO Judy
     e <- J.new :: IO Judy
-    env <- openReadWriteEnvironment dbLocation dbLimits
+    env <- openReadWriteEnvironment dbLoc dbLim
     nlmap <- readWriteTransaction env $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
     elmap <- readWriteTransaction env $ getDatabase (Just "edgeLabelDB") :: IO (Database (Node32,Node32) [el])
-    return (PersistentGraph j e nlmap elmap ranges 0 env dbLocation dbLimits)
+    return (PersistentGraph j e nlmap elmap rs 0 env dbLoc dbLim)
 
 instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Serialise nl, Serialise el) =>
          GraphClass PersistentGraph nl el where
@@ -178,8 +181,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
   -- | Are the judy arrays and nodeLabelMap and edgeLabelMap empty
   isNull :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
             PersistentGraph nl el -> IO Bool
-  isNull (PersistentGraph graph enumGraph nodeLabelMap edgeLabelMap rs n dbEnvironment dbLocation dbLimits) = do
-    isN <- isNull (EnumGraph graph enumGraph rs n edgeFromAttr ::
+  isNull (PersistentGraph graph enumGr _ _ rs n _ _ _) = do
+    isN <- isNull (EnumGraph graph enumGr rs n edgeFromAttr ::
                        (NodeAttribute nl, EdgeAttribute el) => EnumGraph nl el)
     return (isN) -- && (maybe True Map.null nodeLabelMap)
                  -- && (maybe True Map.null edgeLabelMap))
@@ -191,8 +194,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
       foldEs g ((n0, n1), nl0, nl1, edgeLs, dir) = fmap fst $ insertNodeEdgeAttr overwrite g e
         where e = ((n0, n1), nl0, nl1, overlay edgeLs, overlay edgeLs)
               overlay el = Edge32 (sum (map (addDir . snd . fastEdgeAttr) el))
-              addDir attr | dir = attr
-                          | otherwise = attr + edgeBackward
+              addDir attribute | dir = attribute
+                               | otherwise = attribute + edgeBackward
 
   insertNodeEdge overwrite jgraph ((n0,n1), _, _, edgeLabels, dir) = do
     nl0 <- lookupNode jgraph n0
@@ -201,12 +204,12 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
     db <- readWriteTransaction (dbEnvironment jgraph) $ getDatabase (Just "edgeLabelDB") :: IO (Database (Node32,Node32) [el])
     transaction (dbEnvironment jgraph) $ put db (n0,n1) (Just ((fromMaybe [] oldLabel) ++ [edgeLabels]))
 
-    insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels, dir)
+    _ <- insertNodeEdge overwrite jgraph ((n0, n1), nl0, nl1, edgeLabels, dir)
     return (jgraph) -- { edgeLabelDB = newEdgeLabelDB })
 
 
-  insertNodeEdgeAttr overwrite jgraph edge = do
-    (gr, res) <- insertNodeEdgeAttr overwrite egraph edge
+  insertNodeEdgeAttr overwrite jgraph ed = do
+    (gr, res) <- insertNodeEdgeAttr overwrite egraph ed
     return (jgraph { judyGraphC = judyGraphE gr,
                      enumGraphC = enumGraph gr,
                      rangesC    = rangesE gr,
@@ -233,12 +236,12 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
        newgr <- newEdge (PersistentGraph (judyGraphE gr) (enumGraph gr) nm em (rangesE gr) (nodeCountE gr) env loc lim) strs
        return (EnumGraph (judyGraphC newgr) (enumGraphC newgr)
                          (rangesC newgr) (nodeCountC newgr) edgeFromAttr)
-       where newgr = newEdge (PersistentGraph (judyGraphE gr) (enumGraph gr) nm em (rangesE gr) (nodeCountE gr) env loc lim) strs
+--       where newgr = newEdge (PersistentGraph (judyGraphE gr) (enumGraph gr) nm em (rangesE gr) (nodeCountE gr) env loc lim) strs
      egraph = (EnumGraph (judyGraphC jgraph) (enumGraphC jgraph)
                          (rangesC jgraph) (nodeCountC jgraph) edgeFromAttr) :: EnumGraph nl el
 
   insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
-  insertCSVEdge newEdge g (Left message)   = return g
+  insertCSVEdge _       g (Left _)         = return g
 
   ---------------------------------------------------------------------------------------
   -- Deletion
@@ -249,9 +252,9 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
   --   enumGraph. But garbage collecting this is maybe worse.
   deleteNode :: (NodeAttribute nl, EdgeAttribute el, Serialise nl) =>
                 PersistentGraph nl el -> Node32 -> IO (PersistentGraph nl el)
-  deleteNode graph node = do
+  deleteNode graph n = do
     db <- readWriteTransaction (dbEnvironment graph) $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
-    transaction (dbEnvironment graph) $ put db node Nothing
+    transaction (dbEnvironment graph) $ put db n Nothing
     return graph
 
 --    let newNodeMap = fmap (Map.delete node) (persistentNodeLabelMap jgraph)
@@ -271,19 +274,19 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
     return (graph{ nodeLabelDB = nodeLabelDB newNodeDB })
 
 
-  deleteEdges graph edges = do
+  deleteEdges graph es = do
 --    env <- openReadWriteEnvironment (dbLocation graph) (dbLimits graph)
-    newEdgeDB <- foldM deleteEdge graph edges
+    newEdgeDB <- foldM deleteEdge graph es
     return (graph{ edgeLabelDB = edgeLabelDB newEdgeDB })
 
   -- | This will currently produce holes in the continuously enumerated edge list of
   --   enumGraph. But garbage collecting this is maybe worse.
   deleteEdge :: (NodeAttribute nl, EdgeAttribute el, Serialise el) =>
                 (PersistentGraph nl el) -> Edge -> IO (PersistentGraph nl el)
-  deleteEdge (PersistentGraph j e nm em r n dbEnvironment dbLocation dbLimits) (n0,n1) = do
-    db <- readWriteTransaction dbEnvironment $ getDatabase (Just "edgeLabelDB") :: IO (Database (Node32,Node32) [el])
-    transaction dbEnvironment $ put db (n0,n1) Nothing
-    return (PersistentGraph j e nm em r n dbEnvironment dbLocation dbLimits)
+  deleteEdge (PersistentGraph j e nm em r n dbEnv dbLoc dbLim) (n0,n1) = do
+    db <- readWriteTransaction dbEnv $ getDatabase (Just "edgeLabelDB") :: IO (Database (Node32,Node32) [el])
+    transaction dbEnv $ put db (n0,n1) Nothing
+    return (PersistentGraph j e nm em r n dbEnv dbLoc dbLim)
 
   --------------------------------------------------------------------------------------
 
@@ -292,9 +295,9 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
   union :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
            PersistentGraph nl el -> PersistentGraph nl el -> IO (PersistentGraph nl el)
   union (PersistentGraph j0 enumJ0 nodeLabelDB0 edgeLabelDB0 ranges0 n0 dbEnvironment0 dbLoc0 dbLim0)
-        (PersistentGraph j1 enumJ1 nodeLabelDB1 edgeLabelDB1 ranges1 n1 dbEnvironment1 dbLoc1 dbLim1) = do
+        (PersistentGraph j1 enumJ1 nodeLabelDB1 edgeLabelDB1 ranges1 n1 _ _ _) = do
 
-    (EnumGraph newJGraph newJEnum nm em edgeFromAttr :: EnumGraph nl el)
+    (EnumGraph newJGraph newJEnum _ _ _ :: EnumGraph nl el)
         <- union (EnumGraph j0 enumJ0 ranges0 n0 edgeFromAttr)
                  (EnumGraph j1 enumJ1 ranges1 n1 edgeFromAttr)
 
@@ -304,16 +307,16 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
             ranges0 -- assuming ranges are global
             (n0+n1) dbEnvironment0 dbLoc0 dbLim0) -- TODO
    where
-    mapUnion labelDB0 labelDB1 = labelDB0 -- TODO (Map.union labelDB0 labelDB1)
+    mapUnion labelDB0 _ = labelDB0 -- TODO (Map.union labelDB0 labelDB1)
 
 ----------------------------------------------------------------------------------------
 
-  adjacentEdgesByAttr jgraph (Node32 node) (Edge32 attr) = do
+  adjacentEdgesByAttr jgraph (Node32 n32) (Edge32 attribute) = do
     n <- fmap (fmap Node32) (J.lookup key j)
     map fst <$> maybe (return [])
-                      (lookupJudyNodes j (Node32 node) (Edge32 attr) True (Node32 1)) n
+                      (lookupJudyNodes j (Node32 n32) (Edge32 attribute) True (Node32 1)) n
    where
-    key = buildWord64 node attr
+    key = buildWord64 n32 attribute
     j = judyGraphC jgraph
 
 
@@ -325,8 +328,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
     values <- mapM (\n -> fmap (fmap Edge32) (J.lookup n j)) nodeEdges
     return (map fst (filter filterNode (zip nodeEdges values)))
    where j = judyGraphC jgraph
-         filterNode (ne, Just v) | f v = True
-                                 | otherwise = False
+         filterNode (_, Just v) | f v = True
+                                | otherwise = False
          filterNode _ = False
 
 
@@ -337,13 +340,13 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
 
 ---------------------------------------------------------------------------------------
 -- Changing node labels
-
+{-
 -- | This function only works on the lmdb for node labels
 -- You have to figure out a function (Word32 -> Word32) that is equivalent to (nl -> nl)
 -- and call mapNodeJ (so that everything stays consistent)
 mapNode :: (NodeAttribute nl, EdgeAttribute el) =>
            (nl -> nl) -> PersistentGraph nl el -> IO (PersistentGraph nl el)
-mapNode f graph = do
+mapNode _ graph = do
   env <- openReadWriteEnvironment (dbLocation graph) (dbLimits graph)
   db <- readWriteTransaction env $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
   return graph
@@ -361,12 +364,12 @@ mapNode f graph = do
 -- to (Node -> nl -> nl) and call mapNodeWithKeyJ (so that everything stays consistent)
 mapNodeWithKey :: (NodeAttribute nl, EdgeAttribute el) =>
                   (Node32 -> nl -> nl) -> (PersistentGraph nl el) -> IO (PersistentGraph nl el)
-mapNodeWithKey f jgraph = do
+mapNodeWithKey _ jgraph = do
   return jgraph
 -- TODO a way to iterate over all nodes: extend lmdb-simple with first, next
 --  let newMap = fmap (Map.mapWithKey f) (nodeLabelDB jgraph)
 --  return (jgraph { nodeLabelDB = newMap})
-
+-}
 ------------------------------------------------------------------------------------------
 -- Query
 
@@ -390,9 +393,9 @@ lookupEdge graph (n0,n1) = do
 -- | The number of adjacent edges
 adjacentEdgeCount :: (NodeAttribute nl, EdgeAttribute el) =>
                      PersistentGraph nl el -> Node32 -> Edge32 -> IO Word32
-adjacentEdgeCount graph (Node32 node) (Edge32 attrBase) = do
+adjacentEdgeCount graph (Node32 n) (Edge32 attrBase) = do
     -- the first index lookup is the count
-    let edgeCountKey = buildWord64 node attrBase -- (nodeWithMaybeLabel node nl) 0
+    let edgeCountKey = buildWord64 n attrBase -- (nodeWithMaybeLabel node nl) 0
     edgeCount <- J.lookup edgeCountKey mj
     return (fromMaybe 0 edgeCount)
   where
@@ -402,15 +405,15 @@ adjacentEdgeCount graph (Node32 node) (Edge32 attrBase) = do
 
 instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el, Serialise nl, Serialise el) =>
          GraphCreateReadUpdate PersistentGraph nl el (CypherNode nl el) where
-  table graph quickStrat cypherNode
+  table graph _ cypherNode
     | null (cols0 cypherNode) =
-      do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+      do (CypherNode a n _) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
          evalToTableC graph [CN (CypherNode a n True)]
     | otherwise = evalToTableC graph (reverse (cols0 cypherNode))
 
-  temp graph quickStrat cypherNode
+  temp graph _ cypherNode
     | null (cols0 cypherNode) =
-      do (CypherNode a n evalN) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+      do (CypherNode a n _) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
          return [CN (CypherNode a n False)]
     | otherwise = fmap (map switchEvalOff . Map.elems . fst)
                        (runOnC graph False emptyDiff (Map.fromList (zip [0..] comps)))
@@ -423,21 +426,21 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el, 
 
   graphQuery graph quickStrat cypherNode
       | null (cols0 cypherNode) =
-          do (CypherNode a c b) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
+          do (CypherNode a c _) <- evalNode graph (CypherNode (attrN cypherNode) [] False)
              if quickStrat then qEvalToGraphC graph [CN (CypherNode a c True)]
                            else  evalToGraphC graph [CN (CypherNode a c True)]
       | quickStrat = qEvalToGraphC graph (reverse (cols0 cypherNode))
       | otherwise  =  evalToGraphC graph (reverse (cols0 cypherNode))
 
-  graphCreate gr cypherNode = return gr
+  graphCreate gr _ = return gr -- cypherNode
 
 instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el, Serialise nl, Serialise el) =>
          GraphCreateReadUpdate PersistentGraph nl el (CypherEdge nl el) where
-  table graph quickStrat cypherEdge
+  table graph _ cypherEdge
       | null (cols1 cypherEdge) = return []
       | otherwise = evalToTableC graph (reverse (cols1 cypherEdge))
 
-  temp graph quickStrat cypherEdge
+  temp graph _ cypherEdge
       | null (cols1 cypherEdge) = return []
       | otherwise = fmap (map switchEvalOff . Map.elems . fst)
                          (runOnC graph False emptyDiff (Map.fromList (zip [0..] comps)))
@@ -453,12 +456,12 @@ instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el, 
       | quickStrat = qEvalToGraphC graph (reverse (cols1 cypherEdge))
       | otherwise  =  evalToGraphC graph (reverse (cols1 cypherEdge))
 
-  graphCreate gr cypherEdge = return gr
+  graphCreate gr _ = return gr --   graphCreate gr cypherEdge = return gr
 
 -- TODO
 evalToTableC :: (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el) =>
                 PersistentGraph nl el -> [CypherComp nl el] -> IO [NE nl]
-evalToTableC graph comps = return []
+evalToTableC _ _ = return []
 
 -- TODO
 runOnC :: (Eq nl, Show nl, Show el, Enum nl,
@@ -476,11 +479,11 @@ runOnC graph create (GraphDiff dns newns des newEs) comps = -- Debug.Trace.trace
 evalToGraphC :: (Eq nl, Show nl, Show el, Enum nl,
                 NodeAttribute nl, EdgeAttribute el, GraphClass graph nl el) =>
                 graph nl el -> [CypherComp nl el] -> IO (graph nl el)
-evalToGraphC graph comps =
+evalToGraphC graph _ =
   do return graph
 
 qEvalToGraphC :: (Eq nl, Show nl, Show el, Enum nl,
                 NodeAttribute nl, EdgeAttribute el, GraphClass graph nl el) =>
                 graph nl el -> [CypherComp nl el] -> IO (graph nl el)
-qEvalToGraphC graph comps =
+qEvalToGraphC graph _ =
   do return graph

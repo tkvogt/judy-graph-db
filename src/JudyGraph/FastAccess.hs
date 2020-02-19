@@ -61,7 +61,7 @@ Too many ranges obviously slow down the library.
 -}
 module JudyGraph.FastAccess (
     GraphClass(..), NodeAttribute(..), EdgeAttribute(..), JGraph(..), Judy,
-    Edge, Node32(..), Edge32(..), NodeEdge, RangeStart, RangeLen, Index, Start, End, Bits(..),
+    Edge, Node32(..), Edge32(..), NodeEdge, RangeStart, RangeLen, Index, Start, End, Bits,
     AddCSVLine(..),
     -- * Construction
     emptyJ, fromListJ,
@@ -77,22 +77,19 @@ module JudyGraph.FastAccess (
     hasNodeAttr, extrAttr, newNodeAttr, bitmask, invBitmask,
     buildWord64, extractFirstWord32, extractSecondWord32, edgeBackward,
     -- * Displaying in hex for debugging
-    showHex, showHex32, attrOverlap, backLabel
+    showHex, showHex32, attrOverlap, backLabel, debugToCSV
   ) where
 
 import           Codec.Serialise
 import           Control.Monad
 import           Data.Bits((.&.), (.|.))
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Char8 as C
 import           Data.Char (intToDigit)
-import qualified Data.Char8 as C
 import qualified Data.Csv as CSV
 import qualified Data.Judy as J
 import           Data.List(group, sort)
 import qualified Data.List.NonEmpty as NonEmpty
 import           Data.List.NonEmpty(NonEmpty(..))
-import qualified Data.Map.Strict as Map
 import           Data.Map.Strict(Map)
 import           Data.Maybe(fromJust, isJust, isNothing, maybe, catMaybes, fromMaybe)
 import qualified Data.Text as T
@@ -139,8 +136,9 @@ type Edge = (Node32,Node32)
 -- ^ A tuple of nodes
 type RangeStart = Word32
 type RangeLen = Word32
-type Bits = Int
+type Bits = Word32
 
+edgeBackward :: Word32
 edgeBackward = 0x80000000 -- the highest bit of a 32 bit word
 
 -- | A memory efficient way to store a graph with 64 bit key and 32 bit value
@@ -222,7 +220,7 @@ class EdgeAttribute el where
   --   direction of the edge, if its a right or left edge in a binary tree, etc.
 
 class AddCSVLine graph nl el where
-  addCsvLine :: (NodeAttribute nl, Enum nl, Show nl) =>
+  addCsvLine :: (NodeAttribute nl, Show nl) =>
                   Map String Word32 -- ^ A map for looking up nodes by their name
                -> graph nl el -- ^ A graph
                -> Either String (Vector Text) -- ^ A string for each element of the line
@@ -231,16 +229,25 @@ class AddCSVLine graph nl el where
 -- | Generate two empty judy arrays and two empty data.maps for complex node and edge
 --   labels. The purpose of the range list is to give a special interpretation of edges
 --   depending on the node type.
-empty ranges = do
+empty :: (NodeAttribute nl, EdgeAttribute el) =>
+         NonEmpty ((RangeStart, RangeLen), (nl, [el]))
+         -> IO (JGraph nl el)
+empty rs = do
   j <- J.new :: IO Judy
-  return (JGraph j ranges 0)
+  return (JGraph j rs 0)
 
-fromList overwrite nodes directedEdges nodeEdges ranges = do
-  jgraph <- empty ranges
+fromList :: (NodeAttribute nl, EdgeAttribute el, Enum nl, Show nl, Show el) =>
+            Bool -> [(Node32, nl)]
+                 -> [((Node32, Node32), Maybe nl, Maybe nl, [el], Bool)]
+                 -> [((Node32, Node32), Maybe nl, Maybe nl, [el])]
+                 -> NonEmpty ((RangeStart, RangeLen), (nl, [el]))
+                 -> IO (JGraph nl el)
+fromList overwrite nodes directedEdges nodeEdges rs = do
+  jgraph <- empty rs
   insertNodeEdges overwrite jgraph nodes
                   (directedEdges ++ (map addDir nodeEdges) ++ (map dirRev nodeEdges) )
-  where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
-        dirRev ((from,to), nl0, nl1, labels) = ((to,from), nl1, nl0, labels, True)
+  where addDir ((fromNode,toNode), nl0, nl1, labels) = ((fromNode,toNode), nl1, nl0, labels, True)
+        dirRev ((fromNode,toNode), nl0, nl1, labels) = ((toNode,fromNode), nl1, nl0, labels, True)
 
 -----------------------------------------------------------------------------------------
 
@@ -288,7 +295,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     n2 <- J.lookup newValKey j
     let isEdgeNew = isNothing n2
     when (isEdgeNew || (not overwrite)) (J.insert edgeAttrCountKey (edgeAttrCount+1) j)
-    J.insert newValKey n1Key j -- (Debug.Trace.trace ("Fast"++ show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showHex newValKey ++"("++ showHex32 n0Key ++","++ showHex32 n1Key ++")"++ showHex32 attr ++ show nl1 ++ showHex32 n0Key ++ showHex32 attrBase) j)
+    J.insert newValKey n1Key (Debug.Trace.trace ("Fast"++ show (n0, n1) ++" "++ show edgeAttrCount ++" "++ showHex newValKey ++"("++ showHex32 n0Key ++","++ showHex32 n1Key ++")"++ showHex32 attr ++ show nl1 ++ showHex32 n0Key ++ showHex32 attrBase) j)
     let newN = fromMaybe (Node32 n1) (fmap Node32 n2)
     if isEdgeNew || (not overwrite)
       then return (jgraph { nodeCountJ = (nodeCount jgraph) + 1},
@@ -299,7 +306,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     n0Key = maybe n0 (nodeWithLabel (Node32 n0)) nl0
     n1Key = maybe n1 (nodeWithLabel (Node32 n1)) nl1
 
----------------------------------------------------------
+-----------------------------------------------------------------------------------------
   -- | In a dense graph the edges might be too big to be first stored in a list before
   --   being added to the judy graph. Therefore the edges are streamed from a 
   --   .csv-file line by line and then added to the judy-graph. A function is passed that
@@ -322,9 +329,9 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
               l = BL.fromStrict (encodeUtf8 (T.pack line))
 
   insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
-  insertCSVEdge newEdge g (Left message)   = return g
+  insertCSVEdge _ g (Left _)   = return g
 
------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
 
   -- | Deletes all node-edges that contain this node, because the judy array only stores
   --   node-edges
@@ -336,7 +343,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
 
   deleteNodes jgraph nodes = do
-    newNodeMap <- foldM deleteNode jgraph nodes
+    _ <- foldM deleteNode jgraph nodes
     return jgraph
 
 
@@ -354,14 +361,14 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   deleteEdges :: (NodeAttribute nl, EdgeAttribute el) =>
                 (JGraph nl el) -> [Edge] -> IO (JGraph nl el)
   deleteEdges jgraph edges = do
-    newEdgeMap <- foldM deleteEdge jgraph edges
+    _ <- foldM deleteEdge jgraph edges
     return jgraph
 
 ---------------------------------------------------------------------------------------
   -- | Find the bigger one of two judy arrays and insert all (key,value)-pairs from the
   --   smaller judy array into the bigger judy array
-  union g0 g1 = do
-    ((JGraph biggerJ br bn), (JGraph smallerJ sr sn)) <- biggerSmaller g0 g1
+  union gr0 gr1 = do
+    ((JGraph biggerJ br bn), (JGraph smallerJ _ _)) <- biggerSmaller gr0 gr1
     nodeEs <- getNodeEdges smallerJ
     insertNE nodeEs biggerJ
     return (JGraph biggerJ br bn)
@@ -397,8 +404,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     values <- mapM (\n -> J.lookup n j) nodeEdges
     return (map fst (filter filterNode (zip nodeEdges values)))
    where j = judyGraph jgraph
-         filterNode (ne, Just v) | f (Edge32 v) = True
-                                 | otherwise = False
+         filterNode (_, Just v) | f (Edge32 v) = True
+                                | otherwise = False
          filterNode _ = False
 
   nodeCount graph = nodeCountJ graph
@@ -416,18 +423,18 @@ fromListJ :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
              Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el], Bool)]
                                     -> [(Edge, Maybe nl, Maybe nl, [el])] ->
              NonEmpty ((RangeStart,RangeLen), (nl, [el])) -> IO (JGraph nl el)
-fromListJ overwrite nodes dirEdges edges ranges =
-  fromList overwrite nodes dirEdges edges ranges
+fromListJ overwrite nodes dirEdges edges rs =
+  fromList overwrite nodes dirEdges edges rs
 
 -------------------------------------------------------------------------------------------
 
 updateNodeEdges :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                    JGraph nl el -> Node32 -> nl -> (Edge32, Node32) -> IO (JGraph nl el)
-updateNodeEdges jgraph node nodeLabel (Edge32 edge, Node32 targetNode) = do
+updateNodeEdges jgraph node nodeLbl (Edge32 edge, Node32 targetNode) = do
     J.insert key targetNode (judyGraph jgraph)
     return jgraph
   where
-    key = buildWord64 (nodeWithLabel node nodeLabel) edge
+    key = buildWord64 (nodeWithLabel node nodeLbl) edge
 
 
 -----------------------------------------------------------------------------------
@@ -469,15 +476,15 @@ hasNodeAttr (Node32 node) nLabel = (node .&. bitmask bits) == w32
 extrAttr :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
             JGraph nl el -> Node32 -> Word32
 extrAttr jgraph (Node32 node) = node .&. bitmask bits
-  where (bits, w32) = fastNodeAttr (fst (snd (NonEmpty.head (ranges jgraph))))
+  where (bits, _) = fastNodeAttr (fst (snd (NonEmpty.head (ranges jgraph))))
 
 -- | Change the node attribute of a node-edge
 newNodeAttr :: Bits -> (Word32 -> Word32) -> Word -> Word
 newNodeAttr bits f nodeEdge = buildWord64 newNode edge
   where node = extractFirstWord32 nodeEdge
         edge = extractSecondWord32 nodeEdge
-        invBm = invBitmask bits
-        bm = bitmask bits
+--        invBm = invBitmask bits
+--        bm = bitmask bits
         newNode = (node .&. invBitmask bits) .|. f (node .&. bitmask bits)
 
 -- |@
@@ -503,7 +510,7 @@ mapNodeJ f jgraph = do
     ns <- nodeEdgesJ jgraph
     nValues <- mapM (\n -> J.lookup n j) ns
     let nodeValues = map (fromMaybe 0) nValues
-    deleteNodeEdgeListJ jgraph ns
+    _ <- deleteNodeEdgeListJ jgraph ns
     let newNs = map (newNodeAttr bits f) ns
     mapM_ (\(key,value) -> J.insert key value j) (zip newNs nodeValues)
     return jgraph
@@ -519,7 +526,7 @@ mapNodeWithKeyJ f jgraph = do
     ns <- nodeEdgesJ jgraph
     nValues <- mapM (\n -> J.lookup n j) ns
     let nodeValues = map (fromMaybe 0) nValues
-    deleteNodeEdgeListJ jgraph ns
+    _ <- deleteNodeEdgeListJ jgraph ns
     let newNode n = newNodeAttr bits (f (Node32 (extractFirstWord32 n))) n
     let newNs = map newNode ns
     mapM_ (\(key,value) -> J.insert key value j) (zip newNs nodeValues)
@@ -570,12 +577,12 @@ adjacentNodeByAttr :: (GraphClass graph nl el,
                        NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                        graph nl el -> Node32 -> el -> Bool -> IO (Maybe Node32)
 adjacentNodeByAttr jgraph (Node32 node) el dir =
---    Debug.Trace.trace ("anb "++ showHex key) $
+--    Debug.Trace.trace ("anb "++ show (node,el) ++" "++ showHex key) $
       fmap (fmap Node32) (J.lookup key j)
   where
 --    nl = Debug.Trace.trace "nl " $ nodeLabel jgraph node -- outcomment and you will get an endless loop!?
-    (bits, attr) = fastEdgeAttr el
-    key = -- Debug.Trace.trace ("adjacentNodeByAttr "++ show node ++" "++ showHex32 attr
+    (_, attr) = fastEdgeAttr el
+    key = -- Debug.Trace.trace ("adjacentNodeByAttr "++ show (node, el) ++" "++ showHex32 attr
           --        ++" "++ showHex (buildWord64 node (attr + if dir then 0 else edgeBackward))) $
                                    buildWord64 node (attr + if dir then 0 else edgeBackward)
     j = judyGraph jgraph
@@ -709,11 +716,11 @@ debugToCSV (n0,n1) edgeLabel =
 -- | fastEdgeAttr and fastEdgeAttrBase should not overlap for all edgeLabels
 --   that are used on one node type. Thats why we return those edge attrs with 
 --   the corresponding node attr that overlap
--- attrOverlap :: (NodeAttribute nl, EdgeAttribute el) => [(nl, [el])] -> [(nl, [el])]
+attrOverlap :: (NodeAttribute nl, EdgeAttribute el, Eq el, Ord el) => [(nl, [el])] -> [(nl, [el])]
 attrOverlap nlels = catMaybes (map nodeEdgeAttrOverlap nlels)
-  where nodeEdgeAttrOverlap (nodeLabel, edgeLabels)
+  where nodeEdgeAttrOverlap (nodeLbl, edgeLabels)
           | null oes  = Nothing
-          | otherwise = Just (nodeLabel, oes)
+          | otherwise = Just (nodeLbl, oes)
           where oes = rmdups (overlapEs edgeLabels)
                 overlapEs (e:es) = (concat (map untup (filter overlap ts))) ++ (overlapEs es)
                   where ts = map ((,) e) es

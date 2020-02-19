@@ -54,7 +54,7 @@ instance Show EAttr where
   show (Orth w32) = "Orth " ++ show w32
   show DirL = "DirL "
   show DirR = "DirR "
-  show (EFilterBy f) = "EFilterBy"
+  show (EFilterBy _) = "EFilterBy"
   show (Several i0 i1) = show i0 ++ "…" ++ show i1
   show (Edges es) = "Edges "++ show es
   show (Edges2 es) = "Edges2 "++ show es
@@ -97,7 +97,7 @@ applyDeep f (Nodes8 ns) = fmap Edges9 $
            (map (sequence .
            (map (sequence .
            (map (sequence . (map (sequence . (map f)))))))))))))) ns)
-
+applyDeep _ _ = return (Attr 0)
 
 -- Keep structure and apply an IO-function to the lowest nesting of two lists
 zipNAttr :: (NodeAttribute nl, EdgeAttribute el) =>
@@ -105,23 +105,24 @@ zipNAttr :: (NodeAttribute nl, EdgeAttribute el) =>
             -> NAttr -- Node -- first 32 bit of several node-edges
             -> EAttr -- [EdgeAttr32] -- several second 32 bit
             -> IO NAttr -- [Node]) -- looked up nodes
-zipNAttr graph f (Nodes  ns) (Edges2 es) = fmap Nodes2 $ zipWithM f ns es
-zipNAttr graph f (Nodes2 ns) (Edges3 es) = fmap Nodes3 $ zipWithM (zipWithM f) ns es
-zipNAttr graph f (Nodes3 ns) (Edges4 es) =
+zipNAttr _ f (Nodes  ns) (Edges2 es) = fmap Nodes2 $ zipWithM f ns es
+zipNAttr _ f (Nodes2 ns) (Edges3 es) = fmap Nodes3 $ zipWithM (zipWithM f) ns es
+zipNAttr _ f (Nodes3 ns) (Edges4 es) =
   fmap Nodes4 $ zipWithM (zipWithM (zipWithM f)) ns es
-zipNAttr graph f (Nodes4 ns) (Edges5 es) =
+zipNAttr _ f (Nodes4 ns) (Edges5 es) =
   fmap Nodes5 $ zipWithM (zipWithM (zipWithM (zipWithM f))) ns es
-zipNAttr graph f (Nodes5 ns) (Edges6 es) =
+zipNAttr _ f (Nodes5 ns) (Edges6 es) =
   fmap Nodes6 $ zipWithM (zipWithM (zipWithM (zipWithM (zipWithM f)))) ns es
-zipNAttr graph f (Nodes6 ns) (Edges7 es) =
+zipNAttr _ f (Nodes6 ns) (Edges7 es) =
   fmap Nodes7 $ zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM f))))) ns es
-zipNAttr graph f (Nodes7 ns) (Edges8 es) =
+zipNAttr _ f (Nodes7 ns) (Edges8 es) =
   fmap Nodes8 $
     zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM f)))))) ns es
-zipNAttr graph f (Nodes8 ns) (Edges9 es) =
+zipNAttr _ f (Nodes8 ns) (Edges9 es) =
  fmap Nodes9 $
    zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM (zipWithM f)))))))
             ns es
+zipNAttr _ _ _ _ = return (Label [])
 
 class NestedLists a where
   toNAttr :: a -> NAttr
@@ -135,6 +136,7 @@ instance NestedLists [[[[[[Node32]]]]]] where toNAttr ns = Nodes6 ns
 instance NestedLists [[[[[[[Node32]]]]]]] where toNAttr ns = Nodes7 ns
 
 
+flatten :: NAttr -> [Node32]
 flatten (Nodes ns) = ns
 flatten (Nodes2 ns) = concat ns
 flatten (Nodes3 ns) = concat (concat ns)
@@ -143,7 +145,9 @@ flatten (Nodes5 ns) = concat (concat (concat (concat ns)))
 flatten (Nodes6 ns) = concat (concat (concat (concat (concat ns))))
 flatten (Nodes7 ns) = concat (concat (concat (concat (concat (concat ns)))))
 flatten (Nodes8 ns) = concat (concat (concat (concat (concat (concat (concat ns))))))
+flatten _ = []
 
+flatten2 :: NAttr -> [[Node32]]
 flatten2 (Nodes ns) = [ns]
 flatten2 (Nodes2 ns) = ns
 flatten2 (Nodes3 ns) = concat ns
@@ -152,7 +156,9 @@ flatten2 (Nodes5 ns) = concat (concat (concat ns))
 flatten2 (Nodes6 ns) = concat (concat (concat (concat ns)))
 flatten2 (Nodes7 ns) = concat (concat (concat (concat (concat ns))))
 flatten2 (Nodes8 ns) = concat (concat (concat (concat (concat (concat ns)))))
+flatten2 _ = []
 
+flattenEs :: EAttr -> [[Edge32]]
 flattenEs (Edges es)  = [es]
 flattenEs (Edges2 es) = es
 flattenEs (Edges3 es) = concat es
@@ -161,4 +167,4 @@ flattenEs (Edges5 es) = concat (concat (concat es))
 flattenEs (Edges6 es) = concat (concat (concat (concat es)))
 flattenEs (Edges7 es) = concat (concat (concat (concat (concat es))))
 flattenEs (Edges8 es) = concat (concat (concat (concat (concat (concat es)))))
-
+flattenEs _ = []

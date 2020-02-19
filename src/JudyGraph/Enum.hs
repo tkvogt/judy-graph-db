@@ -12,7 +12,7 @@ Portability :  POSIX
 -}
 module JudyGraph.Enum (
     GraphClass(..), NodeAttribute(..), EdgeAttribute(..), JGraph(..), EnumGraph(..), Judy,
-    Edge, Node32(..), Edge32(..), NodeEdge, RangeStart, RangeLen, Index, Start, End, Bits(..),
+    Edge, Node32(..), Edge32(..), NodeEdge, RangeStart, RangeLen, Index, Start, End, Bits,
     -- * Construction
     empty, fromList, emptyE, fromListE,
     insertNodeEdge2, insertNodeLines, insertNE,
@@ -40,8 +40,6 @@ import qualified Data.Char8 as C
 import qualified Data.Csv as CSV
 import qualified Data.Judy as J
 import           Data.List.NonEmpty(NonEmpty(..), toList)
-import qualified Data.Map.Strict as Map
-import           Data.Map.Strict(Map)
 import           Data.Maybe(fromJust, isJust, isNothing, maybe, catMaybes, fromMaybe)
 import qualified Data.Vector as V
 import           Data.Vector(Vector)
@@ -55,7 +53,7 @@ import           System.IO.Unsafe(unsafePerformIO)
 import           System.IO (IOMode (ReadMode), withFile)
 import qualified JudyGraph.FastAccess as JF
 import           JudyGraph.FastAccess
-import Debug.Trace
+-- import Debug.Trace
 
 -- | The edges are enumerated, because sometimes the edge attrs are not continuous
 --   and it is impossible to try all possible 32 bit attrs
@@ -74,29 +72,37 @@ data (NodeAttribute nl, EdgeAttribute el) =>
 
 instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
          Show (EnumGraph nl el) where
-  show (EnumGraph judyGraphE enumGraph rangesE nodeCountE showEdge) =
+  show (EnumGraph judyGrE _ _ _ showE) =
          "\ndigraph graphviz {\n"++
          concat (zipWith3 line nodeOrigins edges nodeDests) ++
          "}\n"
     where
       nodeOrigins = map extractFirstWord32 $
-                    unsafePerformIO (J.keys  (unsafePerformIO (J.freeze judyGraphE)))
+                    unsafePerformIO (J.keys  (unsafePerformIO (J.freeze judyGrE)))
       edges = map extractSecondWord32 $
-              unsafePerformIO (J.keys  (unsafePerformIO (J.freeze judyGraphE)))
-      nodeDests = unsafePerformIO (J.elems (unsafePerformIO (J.freeze judyGraphE)))
-      line or e dest = show or ++" -> "++ show dest ++" [ label = \""++ 
-                       (backLabel e) ++ show (showEdge (Edge32 e)) ++ "\" ];\n"
+              unsafePerformIO (J.keys  (unsafePerformIO (J.freeze judyGrE)))
+      nodeDests = unsafePerformIO (J.elems (unsafePerformIO (J.freeze judyGrE)))
+      line origin e dest = show origin ++" -> "++ show dest ++" [ label = \""++ 
+                       (backLabel e) ++ show (showE (Edge32 e)) ++ "\" ];\n"
 
 -- | Generate two empty judy arrays and two empty data.maps for complex node and edge
 --   labels. The purpose of the range list is to give a special interpretation of edges
 --   depending on the node type.
-empty ranges = do
+empty :: (NodeAttribute nl, EdgeAttribute el) => NonEmpty ((RangeStart, RangeLen), (nl, [el])) -> IO (EnumGraph nl el)
+empty rs = do
   j <- J.new :: IO Judy
   mj <- J.new :: IO Judy
-  return (EnumGraph j mj ranges 0 edgeFromAttr)
+  return (EnumGraph j mj rs 0 edgeFromAttr)
 
-fromList overwrite nodes directedEdges nodeEdges ranges = do
-  jgraph <- empty ranges
+
+fromList :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
+            Bool -> [(Node32, nl)]
+                 -> [((Node32, Node32), Maybe nl, Maybe nl, [el], Bool)]
+                 -> [((Node32, Node32), Maybe nl, Maybe nl, [el])]
+                 -> NonEmpty ((RangeStart, RangeLen), (nl, [el]))
+                 -> IO (EnumGraph nl el)
+fromList overwrite nodes directedEdges nodeEdges rs = do
+  jgraph <- empty rs
   insertNodeEdges overwrite jgraph nodes
                   (directedEdges ++ (map addDir nodeEdges) ++ (map dirRev nodeEdges) )
   where addDir ((from,to), nl0, nl1, labels) = ((from,to), nl1, nl0, labels, True)
@@ -108,9 +114,9 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
          GraphClass EnumGraph nl el where
 
   -- | Are the judy arrays of the graph both empty?
-  isNull (EnumGraph graph enumGraph _ _ _) = do
+  isNull (EnumGraph graph enumGr _ _ _) = do
     g <- J.null graph
-    e <- J.null enumGraph
+    e <- J.null enumGr
     return (g && e)
 
   addNodeCount nodes gr = gr { nodeCountE = (nodeCountE gr) + fromIntegral (length nodes) }
@@ -128,7 +134,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   --   If edge already exists and (overwrite == True) overwrite it
   --   otherwise create a new edge and increase counter (that is at index 0)
   insertNodeEdge overwrite jgraph ((Node32 n0, Node32 n1), nl0, nl1, el, dir) =
---    Debug.Trace.trace ("ins attr"++ show (Edge32 (snd (fastEdgeAttr el)))) $
+  --  Debug.Trace.trace ("ins attr"++ show (el, Edge32 (snd (fastEdgeAttr el)))) $
     fmap fst $ insertNodeEdgeAttr overwrite jgraph
                            ((Node32 n0, Node32 n1), nl0, nl1, Edge32 attr, Edge32 attrBase)
    where
@@ -158,7 +164,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     n2 <- J.lookup newValKey j
     let isEdgeNew = isNothing n2
     when (isEdgeNew || (not overwrite)) (J.insert edgeAttrCountKey (edgeAttrCount+1) j)
-    J.insert newValKey n1Key j -- (Debug.Trace.trace ("Enum count: "++ showHex edgeAttrCountKey ++" "++ show (isEdgeNew, overwrite, (n0,n1), edgeAttrCount) ++" "++ showHex newValKey) j)
+    J.insert newValKey n1Key j -- (Debug.Trace.trace ("Enum count: "++ showHex edgeAttrCountKey ++" "++ show (n0Key, isEdgeNew, overwrite, (n0,n1), edgeAttrCount) ++" "++ showHex newValKey) j)
     let newN = fromMaybe (Node32 n1) (fmap Node32 n2)
     if isEdgeNew || (not overwrite)
       then return (jgraph { nodeCountE = (nodeCountE jgraph) + 1},
@@ -195,7 +201,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
               l = BL.fromStrict (encodeUtf8 (T.pack line))
 
   insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
-  insertCSVEdge newEdge g (Left message)   = return g
+  insertCSVEdge _       g (Left _)         = return g
 
 ----------------------------------------------------------------------------------------
   -- | deletes all node-edges that contain this node, because the judy array only stores
@@ -207,7 +213,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
 
 
   deleteNodes jgraph nodes = do
-    newNodeMap <- foldM deleteNode jgraph nodes
+    _ <- foldM deleteNode jgraph nodes
     return jgraph
 
   -- | "deleteEdge jgraph (n0, n1)" deletes the edge that points from n0 to n1
@@ -218,20 +224,20 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   deleteEdge jgraph (Node32 n0, Node32 n1) = do
     -- es <- allChildEdges jgraph n0
     let nodeEdges = map (buildWord64 n0) [] -- es
-    edgesToN1 <- filterEdgesTo jgraph nodeEdges (\(Edge32 n0) -> n0 == n1)
+    edgesToN1 <- filterEdgesTo jgraph nodeEdges (\(Edge32 node) -> node == n1)
     deleteNodeEdgeListE jgraph edgesToN1
 
 
   deleteEdges :: (NodeAttribute nl, EdgeAttribute el) =>
                 (EnumGraph nl el) -> [Edge] -> IO (EnumGraph nl el)
   deleteEdges jgraph edges = do
-    newEdgeMap <- foldM deleteEdge jgraph edges
+    _ <- foldM deleteEdge jgraph edges
     return jgraph
 
 ----------------------------------------------------------------------------------------
 
-  union g0 g1 = do
-    ((EnumGraph bg be br bn se0), (EnumGraph sg se sr sn se1)) <- biggerSmaller g0 g1
+  union gr0 gr1 = do
+    ((EnumGraph bg be br bn se0), (EnumGraph sg se _ _ _)) <- biggerSmaller gr0 gr1
     nodeEs   <- getNodeEdges sg
     nodeEsMj <- getNodeEdges se
     insertNE nodeEs   bg
@@ -274,8 +280,8 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
     values <- mapM (\n -> fmap (fmap Edge32) (J.lookup n j)) nodeEdges
     return (map fst (filter filterNode (zip nodeEdges values)))
    where j = judyGraphE jgraph
-         filterNode (ne, Just v) | f v = True
-                                 | otherwise = False
+         filterNode (_, Just v) | f v = True
+                                | otherwise = False
          filterNode _ = False
 
   nodeCount graph = nodeCountE graph
@@ -332,7 +338,7 @@ allAttrBases jgraph (Node32 node) = do
  where
   enumBases = -- Debug.Trace.trace ("bases "++ show (node, inRange node (toList (rangesE jgraph)))) $
               map fastEdgeAttrBase ((snd . snd . inRange node . toList . rangesE) jgraph)
-  mj = enumGraph jgraph
+--  mj = enumGraph jgraph
 
 
 -- | To avoid the recalculation of edges
@@ -347,8 +353,10 @@ allChildNodesFromEdges jgraph (Node32 node) edges = do
   j = judyGraphE jgraph
 
 
-inRange node [] = error "node is not inRange, Enum.hs" -- should not happen
-inRange node [((start,len),(nl,els))] = ((start,len),(nl,els))
+inRange :: (NodeAttribute nl, EdgeAttribute el) =>
+           Word32 -> [((Word32, Word32), (nl, [el]))] -> ((Word32, Word32), (nl, [el]))
+inRange _ [] = error "node is not inRange, Enum.hs" -- should not happen
+inRange _ [((start,len),(nl,els))] = ((start,len),(nl,els))
 inRange node (((start,len),(nl,els)):xs) | node >= start = ((start,len),(nl,els))
                                          | otherwise = inRange node xs
 
@@ -360,8 +368,8 @@ fromListE :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
              Bool -> [(Node32, nl)] -> [(Edge, Maybe nl, Maybe nl, [el], Bool)]
                                     -> [(Edge, Maybe nl, Maybe nl, [el])] ->
              NonEmpty ((RangeStart, RangeLen), (nl, [el])) -> IO (EnumGraph nl el)
-fromListE overwrite nodes dirEdges edges ranges =
-  fromList overwrite nodes dirEdges edges ranges
+fromListE overwrite nodes dirEdges edges rs =
+  fromList overwrite nodes dirEdges edges rs
 
 -------------------------------------------------------------------------------------------
 
@@ -378,9 +386,9 @@ insertNodeLines jgraph file edgeLabel =
     parse s = do let ri = readInts s
                  if isJust ri then do
                    let ((n0,n1),rest) = fromJust ri
-                   insertNodeEdge2 jgraph ((Node32 (fromIntegral n0),
-                                            Node32 (fromIntegral n1)),
-                                            Edge32 (snd (fastEdgeAttr edgeLabel)))
+                   _ <- insertNodeEdge2 jgraph ((Node32 (fromIntegral n0),
+                                                 Node32 (fromIntegral n1)),
+                                                 Edge32 (snd (fastEdgeAttr edgeLabel)))
                    parse rest
                  else return ()
 
