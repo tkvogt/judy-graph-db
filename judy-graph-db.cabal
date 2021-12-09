@@ -29,6 +29,7 @@ library
                      , streamly
                      , terminal-progress-bar
                      , text
+                     , time
                      , vector
                      , word8
 

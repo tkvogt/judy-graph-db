@@ -38,7 +38,7 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy, Node32(..), Edge32(..), Edge,
       -- * Deletion
       deleteNode, deleteNodes, deleteEdge, deleteEdges,
       -- * Query
-      isNull, lookupNode, lookupEdge, adjacentEdgeCount,
+      isNull, lookupNode, lookupEdge, adjacentEdgeCount, nodeElems, nodeKeys,
       -- * Changing node labels
       mapNodeJ, mapNodeWithKeyJ,
       -- * Cypher Query
@@ -72,12 +72,16 @@ import           Data.Text(Text)
 import           Data.Vector(Vector)
 import           Data.Word(Word32)
 import           Database.LMDB.Simple
+import           Database.LMDB.Simple.Extra (keys, elems)
 import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy,
                   NodeAttribute(..), EdgeAttribute(..), Edge32(..), Node32(..), Edge,
                   RangeStart, RangeLen, isNull, fromListE,
                   insertCSVEdgeStream, buildWord64, insertNodeEdges, insertNodeLines, edgeBackward,
                   deleteNode, deleteEdge, union, mapNodeJ, mapNodeWithKeyJ, lookupJudyNodes)
 import JudyGraph.Cypher
+import Control.Exception
+import Data.Time
+
 -- import System.ProgressBar
 -- import Debug.Trace
 
@@ -158,7 +162,10 @@ listToDB overwrite nodes directedEdges es rs dbLoc dbLim = do
     putStrLn "fromList"
     jgraph <- emptyDB rs dbLoc dbLim
     putStrLn "fromList 1"
+    start <- getCurrentTime
     ngraph <- insertNodes jgraph nodes
+    end <- getCurrentTime
+    print (diffUTCTime end start)
     putStrLn "fromList judy"
     insertNodeEdges overwrite ngraph nodes
                     (directedEdges ++ (map addDir es) ++ (map dirRev es) )
@@ -387,6 +394,18 @@ lookupEdge :: (NodeAttribute nl, EdgeAttribute el, Serialise el) =>
 lookupEdge graph (n0,n1) = do
   db <- readOnlyTransaction env $ getDatabase (Just "edgeLabelDB") :: IO (Database (Node32,Node32) [el])
   readOnlyTransaction env $ get db (n0,n1)
+ where env = dbEnvironment graph
+
+nodeElems :: (NodeAttribute nl, EdgeAttribute el, Serialise nl, Serialise el) => PersistentGraph nl el -> IO [nl]
+nodeElems graph = do
+  db <- readOnlyTransaction env $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
+  readOnlyTransaction env $ elems db
+ where env = dbEnvironment graph
+
+nodeKeys :: (NodeAttribute nl, EdgeAttribute el, Serialise nl) => PersistentGraph nl el -> IO [Node32]
+nodeKeys graph = do
+  db <- readOnlyTransaction env $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
+  readOnlyTransaction env $ keys db
  where env = dbEnvironment graph
 
 ---------------------------------------------------------------------------
