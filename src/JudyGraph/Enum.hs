@@ -36,8 +36,10 @@ module JudyGraph.Enum (
 import           Control.Monad
 import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy as BL
+import           Data.Char (chr)
 import qualified Data.Char8 as C
 import qualified Data.Csv as CSV
+import           Data.Function((&))
 import qualified Data.Judy as J
 import           Data.List.NonEmpty(NonEmpty(..), toList)
 import           Data.Maybe(fromJust, isJust, isNothing, maybe, catMaybes, fromMaybe)
@@ -46,14 +48,16 @@ import           Data.Vector(Vector)
 import           Data.Text(Text)
 import qualified Data.Text as T
 import           Data.Text.Encoding
-import           Data.Word(Word32)
-import qualified Streamly as S
-import qualified Streamly.Prelude as S
+import           Data.Word(Word8,Word32)
+import qualified Streamly.Prelude as Stream
+import qualified Streamly.Internal.Data.Array.Stream.Foreign as ArrayStream
+import qualified Streamly.Internal.Data.Array.Foreign as Foreign
+import qualified Streamly.Internal.FileSystem.File as File
 import           System.IO.Unsafe(unsafePerformIO)
 import           System.IO (IOMode (ReadMode), withFile)
 import qualified JudyGraph.FastAccess as JF
 import           JudyGraph.FastAccess
--- import Debug.Trace
+import Debug.Trace
 
 -- | The edges are enumerated, because sometimes the edge attrs are not continuous
 --   and it is impossible to try all possible 32 bit attrs
@@ -188,17 +192,17 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                           EnumGraph nl el -> FilePath ->
                          (EnumGraph nl el -> Either String (Vector Text) -> IO (EnumGraph nl el))
                        -> IO (EnumGraph nl el)
-  insertCSVEdgeStream graph file newEdge = withFile file ReadMode $ \handle -> do
-    S.foldlM' newEdge graph
-    . S.serially
-    . fmap readLine
-    . S.fromHandle
-    $ handle
+  insertCSVEdgeStream graph file newEdge =
+     File.toChunks file
+      & ArrayStream.splitOn 10    -- SerialT IO (Array Word8)
+      & Stream.map Foreign.toList -- SerialT IO [Word8]
+      & Stream.map readLine
+      & Stream.foldlM' newEdge (return graph)
     where
-      readLine :: String -> Either String (Vector Text)
+      readLine :: [Word8] -> Either String (Vector Text)
       readLine line = fmap ((V.map (decodeUtf8 . BL.toStrict)) . V.head) strs
         where strs = CSV.decode CSV.NoHeader l :: Either String (Vector (Vector BL.ByteString))
-              l = BL.fromStrict (encodeUtf8 (T.pack line))
+              l = BL.fromStrict (encodeUtf8 (T.pack (map (chr . fromIntegral) line)))
 
   insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
   insertCSVEdge _       g (Left _)         = return g
