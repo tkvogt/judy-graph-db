@@ -150,6 +150,7 @@ emptyDB rs dbLoc dbLim = do -- TODO clear db?
     return (PersistentGraph j e nlmap elmap rs 0 env dbLoc dbLim)
 
 -- | If you don't need persistent node/edge labels use 'fromListJ'
+-- Don't use this if list is big
 listToDB :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Serialise nl, Serialise el, Enum nl) =>
             Bool -> [(Node32, nl)]
                  -> [((Node32, Node32), Maybe nl, Maybe nl, [el], Bool)]
@@ -171,6 +172,7 @@ listToDB overwrite nodes directedEdges es rs dbLoc dbLim = do
                     (directedEdges ++ (map addDir es) ++ (map dirRev es) )
   where addDir ((from,to), nl0, nl1, labls) = ((from,to), nl1, nl0, labls, True)
         dirRev ((from,to), nl0, nl1, labls) = ((to,from), nl1, nl0, labls, True)
+
 
 fromDB :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Serialise nl) =>
           Bool -> NonEmpty ((RangeStart, RangeLen), (nl, [el])) -> FilePath -> Limits -> IO (PersistentGraph nl el)
@@ -238,7 +240,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
      env = dbEnvironment jgraph
      loc = dbLocation jgraph
      lim = dbLimits jgraph
-     newNewEdge :: Database Node32 nl -> Database (Node32,Node32) [el] -> EnumGraph nl el -> Either String (Vector Text) -> IO (EnumGraph nl el)
+     newNewEdge :: Database Node32 nl -> Database (Node32,Node32) [el] -> EnumGraph nl el -> [Text] -> IO (EnumGraph nl el)
      newNewEdge nm em gr strs = do
        newgr <- newEdge (PersistentGraph (judyGraphE gr) (enumGraph gr) nm em (rangesE gr) (nodeCountE gr) env loc lim) strs
        return (EnumGraph (judyGraphC newgr) (enumGraphC newgr)

@@ -190,7 +190,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   --   of strings) and add it to the graph.
   insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
                           EnumGraph nl el -> FilePath ->
-                         (EnumGraph nl el -> Either String (Vector Text) -> IO (EnumGraph nl el))
+                         (EnumGraph nl el -> [Text] -> IO (EnumGraph nl el))
                        -> IO (EnumGraph nl el)
   insertCSVEdgeStream graph file newEdge =
      File.toChunks file
@@ -199,10 +199,14 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
       & Stream.map readLine
       & Stream.foldlM' newEdge (return graph)
     where
-      readLine :: [Word8] -> Either String (Vector Text)
-      readLine line = fmap ((V.map (decodeUtf8 . BL.toStrict)) . V.head) strs
-        where strs = CSV.decode CSV.NoHeader l :: Either String (Vector (Vector BL.ByteString))
-              l = BL.fromStrict (encodeUtf8 (T.pack (map (chr . fromIntegral) line)))
+      readLine :: [Word8] -> [Text]
+      readLine arr = T.split (==',') (T.pack (map (chr . fromIntegral) arr))
+
+--      readLine line = fmap dec strs
+--        where strs = CSV.decode CSV.NoHeader l :: Either String (Vector (Vector BL.ByteString))
+--              l = BL.fromStrict (encodeUtf8 (T.pack (map (chr . fromIntegral) line)))
+--              dec s | V.null s = V.empty
+--                    | otherwise = ((V.map (decodeUtf8 . BL.toStrict)) . V.head) s
 
   insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
   insertCSVEdge _       g (Left _)         = return g

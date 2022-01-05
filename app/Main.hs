@@ -96,7 +96,7 @@ instance EdgeAttribute EdgeLabel where
   edgeFromAttr (Edge32 0x4000001) = BelongtsTO
 
 instance AddCSVLine EnumGraph NodeLabel EdgeLabel where
-  addCsvLine m graph (Right a) = return graph -- [vocIndex, str]
+  addCsvLine m graph a = return graph -- [vocIndex, str]
 
 ------------------------------------------------------------------------------------------
 

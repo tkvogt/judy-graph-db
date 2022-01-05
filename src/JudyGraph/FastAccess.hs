@@ -184,7 +184,7 @@ class GraphClass graph nl el where
                         -> IO (graph nl el, (Bool, (Node32,Word32)))
   insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
                          graph nl el -> FilePath ->
-                         (graph nl el -> Either String (Vector Text) -> IO (graph nl el)) -> IO (graph nl el)
+                         (graph nl el -> [Text] -> IO (graph nl el)) -> IO (graph nl el)
   -- | A helper function for insertCSVEdgeStream
   insertCSVEdge :: (NodeAttribute nl, EdgeAttribute el) =>
                    (graph nl el -> [String] -> IO (graph nl el))
@@ -226,7 +226,7 @@ class AddCSVLine graph nl el where
   addCsvLine :: (NodeAttribute nl, Show nl) =>
                   Map String Word32 -- ^ A map for looking up nodes by their name
                -> graph nl el -- ^ A graph
-               -> Either String (Vector Text) -- ^ A string for each element of the line
+               -> [Text] -- ^ A string for each element of the line
                -> IO (graph nl el) -- ^ The IO action that adds something to the graph
 
 -- | Generate two empty judy arrays and two empty data.maps for complex node and edge
@@ -317,7 +317,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
   --   of strings) and add it to the graph.
   insertCSVEdgeStream :: (NodeAttribute nl, EdgeAttribute el, Show el) =>
                           JGraph nl el -> FilePath ->
-                         (JGraph nl el -> Either String (Vector Text) -> IO (JGraph nl el))
+                         (JGraph nl el -> [Text] -> IO (JGraph nl el))
                        -> IO (JGraph nl el)
   insertCSVEdgeStream graph file newEdge = -- withFile file ReadMode $ \handle -> do
      File.toChunks file
@@ -326,10 +326,14 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
       & Stream.map readLine
       & Stream.foldlM' newEdge (return graph)
     where
-      readLine :: [Word8] -> Either String (Vector Text)
-      readLine line = fmap ((V.map (decodeUtf8 . BL.toStrict)) . V.head) strs
-        where strs = CSV.decode CSV.NoHeader l :: Either String (Vector (Vector BL.ByteString))
-              l = BL.fromStrict (encodeUtf8 (T.pack (map (chr . fromIntegral) line)))
+      readLine :: [Word8] -> [Text]
+      readLine arr = T.split (==',') (T.pack (map (chr . fromIntegral) arr))
+
+--      readLine line = fmap dec strs
+--        where strs = CSV.decode CSV.NoHeader l :: Either String (Vector (Vector BL.ByteString))
+--              l = BL.fromStrict (encodeUtf8 (T.pack (map (chr . fromIntegral) line)))
+--              dec s | V.null s = V.empty
+--                    | otherwise = ((V.map (decodeUtf8 . BL.toStrict)) . V.head) s
 
   insertCSVEdge newEdge g (Right edgeProp) = newEdge g edgeProp
   insertCSVEdge _ g (Left _)   = return g
