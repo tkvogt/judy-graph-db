@@ -58,17 +58,21 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy, Node32(..), Edge32(..), Edge,
       -- * Edge specifiers
       edge, attr, orth, where_, several, (…), (***), genAttrs, extractVariants, AttrVariants(..),
       -- * Helpers
-      n32n, n32e
+      n32n, n32e,
+      -- * Store in file
+      encodeJudy, decodeJudy
      ) where
 
 import           Codec.Serialise
 import           Control.Monad(foldM)
+import qualified Data.ByteString as B
 import qualified Data.Judy as J
 import           Data.List.NonEmpty(NonEmpty(..))
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict(Map)
 import           Data.Maybe(maybe, fromMaybe)
 import           Data.Text(Text)
+import           Data.Time
 import           Data.Vector(Vector)
 import           Data.Word(Word32)
 import           Database.LMDB.Simple
@@ -80,7 +84,7 @@ import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy,
                   deleteNode, deleteEdge, union, mapNodeJ, mapNodeWithKeyJ, lookupJudyNodes)
 import JudyGraph.Cypher
 import Control.Exception
-import Data.Time
+import Network.ByteOrder
 
 -- import System.ProgressBar
 -- import Debug.Trace
@@ -508,3 +512,23 @@ qEvalToGraphC :: (Eq nl, Show nl, Show el, Enum nl,
                 graph nl el -> [CypherComp nl el] -> IO (graph nl el)
 qEvalToGraphC graph _ =
   do return graph
+
+
+encodeJudy :: Judy -> IO B.ByteString
+encodeJudy j = do fr <- J.freeze j
+                  list <- J.toList fr
+                  return (toBS list)
+  where toBS ((key,value):ls) = (bytestring64 (fromIntegral key)) `B.append` (bytestring32 value) `B.append` (toBS ls)
+        toBS [] = B.empty
+
+
+decodeJudy :: B.ByteString -> IO Judy
+decodeJudy bs = do n <- J.new
+                   toJudy bs n
+  where toJudy :: B.ByteString -> Judy -> IO Judy
+        toJudy b j | B.null b  = return j
+                   | otherwise = do J.insert (fromIntegral key) value j
+                                    toJudy (B.drop 12 b) j
+          where key = word64 (B.take 8 b)
+                value = word32 (B.take 4 (B.drop 8 b))
+

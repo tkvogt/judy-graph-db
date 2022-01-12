@@ -24,6 +24,7 @@ library
                      , judy
                      , lmdb-simple
                      , mtl
+                     , network-byte-order
                      , semigroups
                      , serialise
                      , streamly >= 0.8.1.1
