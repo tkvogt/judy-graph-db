@@ -60,23 +60,36 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy, Node32(..), Edge32(..), Edge,
       -- * Helpers
       n32n, n32e,
       -- * Store in file
-      encodeJudy, decodeJudy
+      encodeJudy, decodeJudy, decodeJudyStream,
+      word32ToWord8, wordToWord8
      ) where
 
 import           Codec.Serialise
 import           Control.Monad(foldM)
 import qualified Data.ByteString as B
+import           Data.Char (chr)
+import           Data.Function((&))
 import qualified Data.Judy as J
 import           Data.List.NonEmpty(NonEmpty(..))
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict(Map)
-import           Data.Maybe(maybe, fromMaybe)
+import           Data.Maybe(maybe, fromMaybe, fromJust)
 import           Data.Text(Text)
+import qualified Data.Text as T
 import           Data.Time
 import           Data.Vector(Vector)
 import           Data.Word(Word32)
 import           Database.LMDB.Simple
 import           Database.LMDB.Simple.Extra (keys, elems)
+import qualified Streamly.Prelude as Stream
+import qualified Streamly.Internal.FileSystem.File as File
+import qualified Streamly.Internal.Data.Array.Foreign as Foreign
+import qualified Streamly.Internal.Data.Array.Stream.Foreign as ArrayStream
+import           System.IO.Unsafe(unsafePerformIO)
+import           Foreign.Marshal.Alloc(allocaBytes)
+import           Foreign.Ptr(castPtr, plusPtr)
+import           Foreign.Storable(peek, pokeByteOff)
+
 import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy,
                   NodeAttribute(..), EdgeAttribute(..), Edge32(..), Node32(..), Edge,
                   RangeStart, RangeLen, isNull, fromListE,
@@ -109,8 +122,10 @@ data (NodeAttribute nl, EdgeAttribute el) =>
 
 instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
          Show (PersistentGraph nl el) where
-  show (PersistentGraph _ _ _ _ r _ _ _ _) = show r
-
+  show (PersistentGraph j e _ _ r _ _ _ _) = "(judyGraphC, enumGraphC) " ++ show (unsafePerformIO (J.size j), unsafePerformIO (J.size e))
+                                             -- ++ show (unsafePerformIO (J.keys jfr), unsafePerformIO (J.keys efr))
+    where jfr = unsafePerformIO (J.freeze j)
+          efr = unsafePerformIO (J.freeze e)
 -- | Inserting a new node means either
 --
 --  * if its new then only add an entry to the secondary data.map
@@ -513,14 +528,21 @@ qEvalToGraphC :: (Eq nl, Show nl, Show el, Enum nl,
 qEvalToGraphC graph _ =
   do return graph
 
+---------------------------------------------------------------------------
+-- load judy array from and to file, should be faster than parsing csv
 
-encodeJudy :: Judy -> IO B.ByteString
-encodeJudy j = do fr <- J.freeze j
-                  list <- J.toList fr
-                  return (toBS list)
-  where toBS ((key,value):ls) = (bytestring64 (fromIntegral key)) `B.append` (bytestring32 value) `B.append` (toBS ls)
-        toBS [] = B.empty
-
+encodeJudy :: Judy -> FilePath -> IO ()
+encodeJudy j target = do
+    fr <- J.freeze j
+    putStrLn "freeze"
+    keys <- J.keys fr -- we only take the keys, because the key,value-list would be bigger and how much fits into memory?
+    putStrLn "keys"
+    Stream.fromList keys
+      & Stream.mapM encodeKeyValue
+      & Stream.map Foreign.fromList
+      & File.fromChunks target
+  where encodeKeyValue key = do value <- J.lookup key j
+                                return ((wordToWord8 key) ++ (word32ToWord8 (fromIntegral (fromJust value))))
 
 decodeJudy :: B.ByteString -> IO Judy
 decodeJudy bs = do n <- J.new
@@ -531,4 +553,35 @@ decodeJudy bs = do n <- J.new
                                     toJudy (B.drop 12 b) j
           where key = word64 (B.take 8 b)
                 value = word32 (B.take 4 (B.drop 8 b))
+
+
+--------------------------------------------------------------------------------------------
+
+decodeJudyStream :: FilePath -> IO Judy
+decodeJudyStream file =
+    File.toChunks file
+  & Stream.take 12
+  & Stream.map (readLine . B.pack . Foreign.toList)
+  & Stream.foldlM' ins J.new
+ where ins :: Judy -> (Word64, Word32) -> IO Judy
+       ins j (key,value) = do J.insert (fromIntegral key) value j
+                              return j
+       readLine :: ByteString -> (Word64, Word32)
+       readLine word8s = (key, value)
+         where key = word64 (B.take 8 word8s)
+               value = word32 (B.take 4 (B.drop 8 word8s))
+
+--------------------------------------------------------------------------------
+
+wordToWord8 :: Word -> [Word8]
+wordToWord8 w = map (extractWord8 w) [7,6,5,4,3,2,1,0]
+
+word32ToWord8 :: Word -> [Word8]
+word32ToWord8 w = map (extractWord8 w) [3,2,1,0]
+
+extractWord8 :: Word -> Int -> Word8
+extractWord8 w i
+    = unsafePerformIO . allocaBytes 1 $ \p -> do
+        pokeByteOff p 0 w
+        peek (castPtr (plusPtr p i))
 
