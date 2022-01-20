@@ -58,10 +58,7 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy, Node32(..), Edge32(..), Edge,
       -- * Edge specifiers
       edge, attr, orth, where_, several, (…), (***), genAttrs, extractVariants, AttrVariants(..),
       -- * Helpers
-      n32n, n32e,
-      -- * Store in file
-      encodeJudy, decodeJudy, decodeJudyStream,
-      word32ToWord8, wordToWord8
+      n32n, n32e
      ) where
 
 import           Codec.Serialise
@@ -527,61 +524,4 @@ qEvalToGraphC :: (Eq nl, Show nl, Show el, Enum nl,
                 graph nl el -> [CypherComp nl el] -> IO (graph nl el)
 qEvalToGraphC graph _ =
   do return graph
-
----------------------------------------------------------------------------
--- load judy array from and to file, should be faster than parsing csv
-
-encodeJudy :: Judy -> FilePath -> IO ()
-encodeJudy j target = do
-    fr <- J.freeze j
-    putStrLn "freeze"
-    keys <- J.keys fr -- we only take the keys, because the key,value-list would be bigger and how much fits into memory?
-    putStrLn "keys"
-    Stream.fromList keys
-      & Stream.mapM encodeKeyValue
-      & Stream.map Foreign.fromList
-      & File.fromChunks target
-  where encodeKeyValue key = do value <- J.lookup key j
-                                return ((wordToWord8 key) ++ (word32ToWord8 (fromIntegral (fromJust value))))
-
-decodeJudy :: B.ByteString -> IO Judy
-decodeJudy bs = do n <- J.new
-                   toJudy bs n
-  where toJudy :: B.ByteString -> Judy -> IO Judy
-        toJudy b j | B.null b  = return j
-                   | otherwise = do J.insert (fromIntegral key) value j
-                                    toJudy (B.drop 12 b) j
-          where key = word64 (B.take 8 b)
-                value = word32 (B.take 4 (B.drop 8 b))
-
-
---------------------------------------------------------------------------------------------
-
-decodeJudyStream :: FilePath -> IO Judy
-decodeJudyStream file =
-    File.toChunks file
-  & Stream.take 12
-  & Stream.map (readLine . B.pack . Foreign.toList)
-  & Stream.foldlM' ins J.new
- where ins :: Judy -> (Word64, Word32) -> IO Judy
-       ins j (key,value) = do J.insert (fromIntegral key) value j
-                              return j
-       readLine :: ByteString -> (Word64, Word32)
-       readLine word8s = (key, value)
-         where key = word64 (B.take 8 word8s)
-               value = word32 (B.take 4 (B.drop 8 word8s))
-
---------------------------------------------------------------------------------
-
-wordToWord8 :: Word -> [Word8]
-wordToWord8 w = map (extractWord8 w) [7,6,5,4,3,2,1,0]
-
-word32ToWord8 :: Word -> [Word8]
-word32ToWord8 w = map (extractWord8 w) [3,2,1,0]
-
-extractWord8 :: Word -> Int -> Word8
-extractWord8 w i
-    = unsafePerformIO . allocaBytes 1 $ \p -> do
-        pokeByteOff p 0 w
-        peek (castPtr (plusPtr p i))
 
