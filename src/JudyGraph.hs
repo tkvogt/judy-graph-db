@@ -62,7 +62,9 @@ module JudyGraph (JGraph(..), EnumGraph(..), Judy, Node32(..), Edge32(..), Edge,
      ) where
 
 import           Codec.Serialise
-import           Control.Monad(foldM)
+import           Control.Monad(foldM, liftM)
+import           Data.Binary(Binary)
+import qualified Data.Binary as Bin
 import qualified Data.ByteString as B
 import           Data.Char (chr)
 import           Data.Function((&))
@@ -78,14 +80,7 @@ import           Data.Vector(Vector)
 import           Data.Word(Word32)
 import           Database.LMDB.Simple
 import           Database.LMDB.Simple.Extra (keys, elems)
-import qualified Streamly.Prelude as Stream
-import qualified Streamly.Internal.FileSystem.File as File
-import qualified Streamly.Internal.Data.Array.Foreign as Foreign
-import qualified Streamly.Internal.Data.Array.Stream.Foreign as ArrayStream
 import           System.IO.Unsafe(unsafePerformIO)
-import           Foreign.Marshal.Alloc(allocaBytes)
-import           Foreign.Ptr(castPtr, plusPtr)
-import           Foreign.Storable(peek, pokeByteOff)
 
 import JudyGraph.Enum(GraphClass(..), JGraph(..), EnumGraph(..), Judy,
                   NodeAttribute(..), EdgeAttribute(..), Edge32(..), Node32(..), Edge,
@@ -123,13 +118,20 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                                              -- ++ show (unsafePerformIO (J.keys jfr), unsafePerformIO (J.keys efr))
     where jfr = unsafePerformIO (J.freeze j)
           efr = unsafePerformIO (J.freeze e)
+
+instance Binary Node32 where
+    {-# INLINE put #-}
+    put (Node32 w32)           = Bin.put w32
+    {-# INLINE get #-}
+    get                 = liftM Node32 Bin.get
+
 -- | Inserting a new node means either
 --
 --  * if its new then only add an entry to the secondary data.map
 --
 --  * if it already exists then the label of the existing node is changed.
 --    This can be slow because all node-edges have to be updated (O(#adjacentEdges))
-insertNode :: (NodeAttribute nl, EdgeAttribute el, Serialise nl) =>
+insertNode :: (NodeAttribute nl, EdgeAttribute el, Serialise nl, Binary nl) =>
               PersistentGraph nl el -> (Node32, nl) -> IO (PersistentGraph nl el)
 insertNode (PersistentGraph j eg _ em r c dbEnv dbLoc dbLim) (n, nl) = do
   db <- readWriteTransaction dbEnv $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
@@ -149,7 +151,7 @@ insertNode (PersistentGraph j eg _ em r c dbEnv dbLoc dbLim) (n, nl) = do
 --  ace = allChildEdges (EnumGraph j eg r n) node
 
 -- | Insert several nodes using 'insertNode'
-insertNodes :: (NodeAttribute nl, EdgeAttribute el, Serialise nl) =>
+insertNodes :: (NodeAttribute nl, EdgeAttribute el, Serialise nl, Binary nl) =>
                PersistentGraph nl el -> [(Node32, nl)] -> IO (PersistentGraph nl el)
 insertNodes graph nodes = do
   foldM insertNode graph nodes
@@ -167,7 +169,7 @@ emptyDB rs dbLoc dbLim = do -- TODO clear db?
 
 -- | If you don't need persistent node/edge labels use 'fromListJ'
 -- Don't use this if list is big
-listToDB :: (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Serialise nl, Serialise el, Enum nl) =>
+listToDB :: (NodeAttribute nl, Binary nl, Binary el, EdgeAttribute el, Show nl, Show el, Serialise nl, Serialise el, Enum nl) =>
             Bool -> [(Node32, nl)]
                  -> [((Node32, Node32), Maybe nl, Maybe nl, [el], Bool)]
                  -> [((Node32, Node32), Maybe nl, Maybe nl, [el])]
@@ -200,7 +202,7 @@ fromDB _ rs dbLoc dbLim = do -- TODO
     elmap <- readWriteTransaction env $ getDatabase (Just "edgeLabelDB") :: IO (Database (Node32,Node32) [el])
     return (PersistentGraph j e nlmap elmap rs 0 env dbLoc dbLim)
 
-instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Serialise nl, Serialise el) =>
+instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Serialise nl, Serialise el, Binary nl, Binary el) =>
          GraphClass PersistentGraph nl el where
 
   -- | Are the judy arrays and nodeLabelMap and edgeLabelMap empty
@@ -275,7 +277,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
 
   -- | This will currently produce holes in the continuously enumerated edge list of
   --   enumGraph. But garbage collecting this is maybe worse.
-  deleteNode :: (NodeAttribute nl, EdgeAttribute el, Serialise nl) =>
+  deleteNode :: (NodeAttribute nl, EdgeAttribute el, Serialise nl, Binary nl) =>
                 PersistentGraph nl el -> Node32 -> IO (PersistentGraph nl el)
   deleteNode graph n = do
     db <- readWriteTransaction (dbEnvironment graph) $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
@@ -306,7 +308,7 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl, Seriali
 
   -- | This will currently produce holes in the continuously enumerated edge list of
   --   enumGraph. But garbage collecting this is maybe worse.
-  deleteEdge :: (NodeAttribute nl, EdgeAttribute el, Serialise el) =>
+  deleteEdge :: (NodeAttribute nl, Binary nl, Binary el, EdgeAttribute el, Serialise el, Binary el) =>
                 (PersistentGraph nl el) -> Edge -> IO (PersistentGraph nl el)
   deleteEdge (PersistentGraph j e nm em r n dbEnv dbLoc dbLim) (n0,n1) = do
     db <- readWriteTransaction dbEnv $ getDatabase (Just "edgeLabelDB") :: IO (Database (Node32,Node32) [el])
@@ -399,7 +401,7 @@ mapNodeWithKey _ jgraph = do
 -- Query
 
 -- | This function only works on 'complexNodeLabelMap'
-lookupNode :: (NodeAttribute nl, EdgeAttribute el, Serialise nl) =>
+lookupNode :: (NodeAttribute nl, Binary nl, EdgeAttribute el, Serialise nl) =>
               PersistentGraph nl el -> Node32 -> IO (Maybe nl)
 lookupNode graph n = do
   db <- readOnlyTransaction env $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
@@ -407,14 +409,14 @@ lookupNode graph n = do
  where env = dbEnvironment graph
 
 -- | This function only works on 'complexEdgeLabelMap'
-lookupEdge :: (NodeAttribute nl, EdgeAttribute el, Serialise el) =>
+lookupEdge :: (NodeAttribute nl, Binary nl, Binary el, EdgeAttribute el, Serialise el) =>
               PersistentGraph nl el -> Edge -> IO (Maybe [el])
 lookupEdge graph (n0,n1) = do
   db <- readOnlyTransaction env $ getDatabase (Just "edgeLabelDB") :: IO (Database (Node32,Node32) [el])
   readOnlyTransaction env $ get db (n0,n1)
  where env = dbEnvironment graph
 
-nodeElems :: (NodeAttribute nl, EdgeAttribute el, Serialise nl, Serialise el) => PersistentGraph nl el -> IO [nl]
+nodeElems :: (NodeAttribute nl, EdgeAttribute el, Serialise nl, Binary nl, Serialise el) => PersistentGraph nl el -> IO [nl]
 nodeElems graph = do
   db <- readOnlyTransaction env $ getDatabase (Just "nodeLabelDB") :: IO (Database Node32 nl)
   readOnlyTransaction env $ elems db
@@ -440,7 +442,7 @@ adjacentEdgeCount graph (Node32 n) (Edge32 attrBase) = do
 
 ------------------------------------------------------------------------------------------
 
-instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el, Serialise nl, Serialise el) =>
+instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el, Serialise nl, Serialise el, Binary nl, Binary el) =>
          GraphCreateReadUpdate PersistentGraph nl el (CypherNode nl el) where
   table graph _ cypherNode
     | null (cols0 cypherNode) =
@@ -471,7 +473,7 @@ instance (Eq nl, Show nl, Show el, Enum nl, NodeAttribute nl, EdgeAttribute el, 
 
   graphCreate gr _ = return gr -- cypherNode
 
-instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el, Serialise nl, Serialise el) =>
+instance (Eq nl, Show nl, Show el, NodeAttribute nl, Enum nl, EdgeAttribute el, Serialise nl, Serialise el, Binary nl, Binary el) =>
          GraphCreateReadUpdate PersistentGraph nl el (CypherEdge nl el) where
   table graph _ cypherEdge
       | null (cols1 cypherEdge) = return []

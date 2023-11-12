@@ -49,9 +49,10 @@ import           Data.Text(Text)
 import qualified Data.Text as T
 import           Data.Text.Encoding
 import           Data.Word(Word8,Word32)
-import qualified Streamly.Prelude as Stream
-import qualified Streamly.Internal.Data.Array.Stream.Foreign as ArrayStream
-import qualified Streamly.Internal.Data.Array.Foreign as Foreign
+import qualified Streamly.Data.Array as Array
+import qualified Streamly.Data.Fold as Fold
+import qualified Streamly.Data.Stream.Prelude as Stream
+import qualified Streamly.Internal.Data.Stream.Chunked as ArrayStream (splitOn)
 import qualified Streamly.Internal.FileSystem.File as File
 import           System.IO.Unsafe(unsafePerformIO)
 import           System.IO (IOMode (ReadMode), withFile)
@@ -193,11 +194,10 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                          (EnumGraph nl el -> [Text] -> IO (EnumGraph nl el))
                        -> IO (EnumGraph nl el)
   insertCSVEdgeStream graph file newEdge =
-     File.toChunks file
-      & ArrayStream.splitOn 10    -- SerialT IO (Array Word8)
-      & Stream.map Foreign.toList -- SerialT IO [Word8]
-      & Stream.map readLine
-      & Stream.foldlM' newEdge (return graph)
+     File.readChunks file
+      & ArrayStream.splitOn 10
+      & fmap (readLine . Array.toList)
+      & Stream.fold (Fold.foldlM' newEdge (return graph))
     where
       readLine :: [Word8] -> [Text]
       readLine arr = T.split (==',') (T.pack (map (chr . fromIntegral) arr))

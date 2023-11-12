@@ -82,6 +82,7 @@ module JudyGraph.FastAccess (
 
 import           Codec.Serialise
 import           Control.Monad
+import           Data.Binary(Binary)
 import           Data.Bits((.&.), (.|.))
 import qualified Data.ByteString.Lazy as BL
 import           Data.Char (intToDigit, chr)
@@ -105,9 +106,13 @@ import           Foreign.Marshal.Alloc(allocaBytes)
 import           Foreign.Ptr(castPtr, plusPtr)
 import           Foreign.Storable(peek, pokeByteOff)
 import GHC.Generics
-import qualified Streamly.Prelude as Stream
-import qualified Streamly.Internal.Data.Array.Stream.Foreign as ArrayStream
-import qualified Streamly.Internal.Data.Array.Foreign as Foreign
+import qualified System.IO as IO
+import qualified Streamly.Data.Array as Array
+import qualified Streamly.Data.Fold as Fold
+import qualified Streamly.Data.Stream as Stream
+import qualified Streamly.Internal.Data.Stream as Stream (splitOn)
+import qualified Streamly.FileSystem.Handle as Handle
+import qualified Streamly.Internal.Data.Stream.Chunked as ArrayStream (splitOn)
 import qualified Streamly.Internal.FileSystem.File as File
 import           System.IO.Unsafe(unsafePerformIO)
 import           System.IO (IOMode (ReadMode), withFile)
@@ -173,7 +178,7 @@ class GraphClass graph nl el where
 --  mapNode
 --  mapNodeWithKey
 --  findMaxKey
-  insertNodeEdge ::  Bool -> graph nl el ->  (Edge,Maybe nl,Maybe nl,el,Bool)
+  insertNodeEdge ::  (Binary nl, Binary el) => Bool -> graph nl el ->  (Edge,Maybe nl,Maybe nl,el,Bool)
                       -> IO (graph nl el)
   -- | Insert several edges using 'insertNodeEdge'
   insertNodeEdges :: Bool -> graph nl el -> [(Node32, nl)] -> [(Edge,Maybe nl,Maybe nl,[el],Bool)]
@@ -319,12 +324,11 @@ instance (NodeAttribute nl, EdgeAttribute el, Show nl, Show el, Enum nl) =>
                           JGraph nl el -> FilePath ->
                          (JGraph nl el -> [Text] -> IO (JGraph nl el))
                        -> IO (JGraph nl el)
-  insertCSVEdgeStream graph file newEdge = -- withFile file ReadMode $ \handle -> do
-     File.toChunks file
-      & ArrayStream.splitOn 10    -- SerialT IO (Array Word8)
-      & Stream.map Foreign.toList -- SerialT IO [Word8]
-      & Stream.map readLine
-      & Stream.foldlM' newEdge (return graph)
+  insertCSVEdgeStream graph inFile newEdge = do
+     File.readChunks inFile
+      & ArrayStream.splitOn 10
+      & fmap (readLine . Array.toList)
+      & Stream.fold (Fold.foldlM' newEdge (return graph))
     where
       readLine :: [Word8] -> [Text]
       readLine arr = T.split (==',') (T.pack (map (chr . fromIntegral) arr))
